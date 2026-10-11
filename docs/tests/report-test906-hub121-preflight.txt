@@ -49,3 +49,26 @@ Verified with an isolated fake executor (no live Hub):
   - side-thread default 1 and explicit override 0 reach the executor correctly.
 Original vault/port preconditions remain in the shared launcher. This narrow
 check does not retest them, execute the Hub, or constitute deployment acceptance.
+
+2026-10-11 12:25 +08 — published Hub startup/authenticated read PASS.
+The .121 package was installed into the new, inactive sibling runtime with
+npm install --ignore-scripts --no-audit --no-fund. No global package changed.
+The exact resulting package.json/package-lock.json are recorded under
+deploy/hub/provider906/ for npm ci recovery (not an unpinned reinstall).
+Lock SHA256: 4430ea32c70fe1d14a2b0d04e2936305ebc78333d082f8848dc3a4e666560fd9.
+The installed Hub's lock integrity equals the published integrity above.
+
+Built Dockerfile.http and mounted this runtime, the same offline before.db,
+and Bun 1.4.0 read-only. Container had --network none, read-only root and
+private /tmp tmpfs; no host port, vault key or environment credentials.
+http.mjs copies DB, creates one random short-lived fixture token ONLY in that
+copy, and starts the actual published bin/commhub.ts on container loopback.
+PASS: /health version .121; anonymous /api/status 401; fixture-authenticated
+network-scoped /api/status 200, all 318 expected session rows in that network.
+No response bodies, row identities, token values or child logs were exported.
+Published startup can run background work only against the disposable DB copy;
+network isolation prevents production delivery. No live request was dispatched.
+Original backup SHA256 remains unchanged. Hub child stopped; --rm container
+anet-hub121-offline-http removed, exec exited 0. No production restart.
+This clears the runbook startup/auth-read step, NOT vault decryption, fleet
+heartbeat/ack recovery, Provider application or end-to-end product acceptance.

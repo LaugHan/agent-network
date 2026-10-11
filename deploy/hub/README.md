@@ -175,6 +175,11 @@ curl -s localhost:9200/health          # version 与 sessions_count
 `@sleep2agi/commhub-server@0.9.0-preview.121`；来源和离线迁移结果见
 `docs/tests/report-test906-hub121-preflight.txt`。预检通过不代表已部署。
 
+该部署的完整 npm 输入锁在 `deploy/hub/provider906/package*.json`，包括发布包
+的 registry URL 与 integrity。空目录安装时复制这两个文件到上述 sibling
+runtime，然后在该目录执行 `npm ci --ignore-scripts --no-audit --no-fund`。
+不要只按版本重新解析浮动的传递依赖；保留旧 runtime 和密钥来源不变。
+
 完成上述一致性备份、精确包固化安装和 Docker 旁路验证后，将合入 main 的
 `deploy/hub/hub-daemon.sh` 安装为 `~/.local/bin/hub-daemon-base.sh`，将
 `deploy/hub/hub-provider906.sh` 安装为既有 PM2 入口
