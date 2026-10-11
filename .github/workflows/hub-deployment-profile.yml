@@ -1,0 +1,29 @@
+name: Hub deployment profile
+on:
+  pull_request:
+    paths:
+      - 'deploy/hub/**'
+      - 'tests/test906-hub-upgrade-preflight/**'
+      - '.github/workflows/hub-deployment-profile.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/hub/**'
+      - 'tests/test906-hub-upgrade-preflight/**'
+      - '.github/workflows/hub-deployment-profile.yml'
+permissions:
+  contents: read
+jobs:
+  launcher:
+    name: Hub deployment profile (Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - name: Exact runtime selection and rollback (no live Hub)
+        run: >-
+          sg docker -c 'docker build --network none
+          -f tests/test906-hub-upgrade-preflight/Dockerfile.launcher
+          -t hub-profile-check . && docker run --rm --network none hub-profile-check'
+      # The separate offline DB migration probe requires an operator-owned
+      # consistent backup. Never upload production data or credentials to CI.
