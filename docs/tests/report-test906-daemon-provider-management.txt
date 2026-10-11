@@ -273,3 +273,16 @@ Post-restack verification (2026-10-11T00:53Z):
   removed; one retained failed observation container was inspected exited1 then
   removed. TEST-ONLY images retained. No production/global packages touched.
   Not merged, publicly released or installed on the user's daemon yet.
+
+2026-10-11 10:24 CST: release-pair preparation (not publication).
+  Base 968d613763e36cd4f03cfc496d26e36666b80f1e plus version-only preparation:
+  CLI .163, runtime .129, Hub .121; package locks, exact runtime pair and the
+  test-only resolver shim agree. Existing published Hub startup floor unchanged
+  to avoid pointing the release installation gate at an unpublished dependency.
+  Docker --rm --network none, readonly source/manifest mounts over the retained
+  native test image; no native business sample rerun:
+    package consistency (all three packages) + exact runtime pair = 12/12 PASS,
+    29 assertions, exit0. Container removed; no production or global changes.
+  Added candidate install/upgrade/rollback notes. Client sidecar update must wait
+  for Hub .121's actual published integrity; do not fabricate a lock or package.
+  Main merge, release gates, package publication and client delivery remain pending.
