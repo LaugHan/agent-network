@@ -1,5 +1,11 @@
 # 更新日志
 
+## 未发布：Hub 可排队读取已归属的 OpenCode V2 目录（2026-10-11）
+
+- 网络成员可以用 `read_opencode_catalog` 让 host_supervisor daemon 读取它已经在跑的 OpenCode V2 回环目录。`ok` 且 `status: pending` 只表示 Hub 已授权并记在内存里。门铃是尽力推送：没有订阅者就不会送达。只有 `get_opencode_catalog` 的 `status: ready` 才是快照，而且 completeness 仍是 unknown、invocationVerified 仍是 false。
+- 这条路径不启动 OpenCode、不提示输入、不跟随重定向。身份和代际只来自 Hub 里已有的创建记录。请求不能带 url、authorization、directory、settings、headers 或 body。
+- 没有客户端挑选界面，也不是 npm 发布。收编节点不在这一片。创建记录没有 workdir 时，目录由 daemon 绑定到它已经拥有的项目目录，Hub 看不到那台机器的文件系统。
+
 ## 未发布：OpenCode V2 用户指南（2026-10-11）
 
 - anet.sh 增加 [OpenCode V2](/guide/opencode)（中英），侧栏放在 Grok 旁边。它说明 `opencode-cli` 的 V2 创建、共存启动、Hub 对话和 daemon 约束。

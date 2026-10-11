@@ -209,7 +209,12 @@ describe("bytes per role (#476 ceilings stay meaningful per role)", () => {
   // `all` is 207 B over 80,100. The two protocol descriptions are 179 B together, so
   // shortening them cannot pay for their schemas. Raise only `all` to 80,800
   // (493 B margin, same order as the previous all margin).
-  const CEILINGS = { node: 63_100, user: 57_500, all: 80_800 } as const;
+  // OpenCode V2 catalog adds 2 user tools and 2 protocol tools on that tree.
+  // Same measurement after both: all 94 / 84,273 B (+3,966); node 61 / 62,556 B
+  // unchanged (protocol tools stay off the node list); user 61 / 58,684 B (+1,312).
+  // Node stays under 63,100. Raise user to 58,956 and all to 84,782
+  // (~272/509 B margin, the catalog-only budget applied to this combined list).
+  const CEILINGS = { node: 63_100, user: 58_956, all: 84_782 } as const;
   test("node / user / all", async () => {
     const node = await listTools(T.node_normal);
     const user = await listTools(T.owner);

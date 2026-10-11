@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased: Hub can queue a catalog read for an owned OpenCode V2 node (2026-10-11)
+
+- A network member can call `read_opencode_catalog` so the host_supervisor daemon reads the OpenCode V2 loopback it is already running. `ok` with `status: pending` means the Hub authorized the read and stored it in memory. The doorbell is best-effort: with no subscriber it is not delivered. Only `get_opencode_catalog` with `status: ready` is a snapshot, and completeness stays unknown and invocationVerified stays false.
+- This path does not start OpenCode, prompt, or follow redirects. Identity and generation come only from the Hub's existing create record. The request cannot carry url, authorization, directory, settings, headers, or body.
+- There is no client picker, and this is not an npm release. Adopted nodes are not in this slice. When the create record has no workdir, the daemon binds the read to the project directory it already owns. The Hub does not see that machine's filesystem.
+
 ## Unreleased: OpenCode V2 user guide (2026-10-11)
 
 - anet.sh gains an [OpenCode V2](/en/guide/opencode) guide in Chinese and English. The sidebar entry sits next to Grok. It covers V2 create on `opencode-cli`, co-presence start, Hub dialogue, and the daemon constraints.
