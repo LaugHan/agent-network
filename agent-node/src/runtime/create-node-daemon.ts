@@ -560,11 +560,37 @@ export function missingCliCreateError(command: string): string {
   );
 }
 
+/** Copied from the daemon's own env (never from `extra`) when set.
+ *  USER / LOGNAME: Claude Code on macOS reads its Keychain login by account
+ *  = $USER; without it every claude-agent-sdk child answered "Not logged in".
+ *  Proxy keys: behind a local proxy the child otherwise connects directly and
+ *  the vendor API refuses it (Anthropic: "403 Request not allowed"), while
+ *  runtime-readiness — which runs with the daemon env — reports reachable.
+ *  No credentials and no runtime-config keys; additions need review and a
+ *  set-equality test update. */
+export const DAEMON_CHILD_INHERITED_ENV_KEYS = [
+  "USER",
+  "LOGNAME",
+  "HTTPS_PROXY",
+  "https_proxy",
+  "HTTP_PROXY",
+  "http_proxy",
+  "ALL_PROXY",
+  "all_proxy",
+  "NO_PROXY",
+  "no_proxy",
+] as const;
+
 export function minimalEnv(
   extra: Record<string, string> = {},
   platform: NodeJS.Platform = process.platform,
   parentEnv: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
+  const inherited: Record<string, string> = {};
+  for (const k of DAEMON_CHILD_INHERITED_ENV_KEYS) {
+    const v = parentEnv[k];
+    if (typeof v === "string" && v !== "") inherited[k] = v;
+  }
   const filtered: Record<string, string> = {};
   const fixedKeys = fixedEnvKeysFor(platform);
   for (const [k, v] of Object.entries(extra)) {
@@ -578,6 +604,7 @@ export function minimalEnv(
   }
   const home = resolveChildHome(parentEnv, platform);
   const base: NodeJS.ProcessEnv = {
+    ...inherited,
     ...filtered,
     // #648 — fixed prefix (computeChildPath, historically aS()) first, then
     // daemonExtraPath. Not process.env.PATH, and not guessed user dirs.
