@@ -32,14 +32,25 @@ Earlier attempts retained as facts:
   Corrected fixture permissions to reach the intended identity negative control;
   did not relax filesystem checks. Then 15/15, followed by final 17/17 above.
 
+Additional Docker verification (2026-10-11T00:41Z):
+  Dockerfile.cli installs the checked-in npm lockfile with scripts disabled,
+  typechecks the two new production modules with strict tsc (not whole-repo tsc),
+  and bundles the actual agent-network/bin/cli.ts (319 modules).
+  Node 22.22.2, non-root, --network none: compiled CLI save/list in independent
+  processes, another daemon empty, stale revision rejected, malformed JSON
+  redacted. Both CLI build/run attempts exited 0; the second adds strict tsc.
+  Final CLI image manifest:
+  sha256:63a984fcea4f599f170cb323c9823ef90e91fe0620aa68038cc14ae60ff947b5
+  This is local CLI storage E2E, not account login/model invocation E2E.
+
 NOT verified / still required:
-  Full CLI bundle/typecheck, remote Hub authorization/secret delivery,
+  Whole-repository typecheck, remote Hub authorization/secret delivery,
   client management UI, official ChatGPT login or switch, node binding and
   actual model/provider requests, native package acceptance or public release.
   ChatGPT metadata remains credential_present=false; no fake logged-in state.
   Configured models/keys remain not_checked/not_applied; do not count as usable.
 
 Cleanup: test containers used --rm; fixture directories removed by afterEach.
-Only this task's tagged test image remains. No real keys, local accounts, Hub
+Only this task's two tagged test images remain. No real keys, local accounts, Hub
 state, daemon process, installed npm package or production configuration touched.
 Recovery questions and remaining gaps: docs/design/906-daemon-provider-management.md
