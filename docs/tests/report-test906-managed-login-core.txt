@@ -1,0 +1,29 @@
+2026-10-11 12:34 +08 — TEST-ONLY, not a delivered login/switch feature.
+Scope: managed ChatGPT device-code state machine and isolated stdio startup.
+Base: main f1b0502c20fff31a04e9787d54fe3d64c6f4a804.
+
+Official source read: https://learn.chatgpt.com/docs/app-server
+Native binary: codex-cli 0.159.2, exact npm install in Dockerfile.login.
+Native generated LoginAccountParams contains chatgptDeviceCode; cancellation
+schema contains canceled/notFound. No external-token or browser callback flow.
+
+Docker core: 4 PASS, 0 FAIL, 12 expectations.
+- matching completion plus ChatGPT account/read required for authenticated;
+- wrong loginId ignored and public state omits fixture account secrets;
+- cancel sends the exact loginId, closes draft process, ignores late success;
+- existing account is not overwritten; missing account after success is failure.
+Native protocol check PASS: initialize/initialized/account-read against actual
+Codex in an empty draft HOME/CODEX_HOME. A parent API-key sentinel is excluded
+by replaceEnv. Returned account=null. No actual login/start was sent to OpenAI.
+Container ran --init --rm --network none. No host credentials/DB/config mounted,
+no model inference, no production change. Container removed, exit 0.
+
+Initial targeted TypeScript check found two stale narrowing errors across async
+state transitions; replaced direct narrowed checks with a state predicate.
+Targeted strict tsc 5.9.3 in Docker then passed for both implementation files.
+The native stdio check does not use the state predicate; no binary behavior changed.
+No full suite, real OAuth success, Hub transport, account persistence, UI, node
+switch or inference is claimed. Those are still required to finish #906.
+
+Reproduce core + native contract:
+  sg docker -c 'docker build -f tests/test906-daemon-provider-management/Dockerfile.login -t anet-provider:test906-login-core . && docker run --init --rm --network none anet-provider:test906-login-core'

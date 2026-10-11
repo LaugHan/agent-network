@@ -2,6 +2,30 @@
 
 状态：实现中，未上线。P0；本片不是 #906 完成验收。
 
+2026-10-11 12:30 东八区交付校准：既有 API Key 首片已合入 main；Hub `.121`
+已经部署，Android `.235` 已发布，但 CLI `.163` 被 npm 接收后尚未可下载，
+自身 Daemon 和桌面首片尚未升级/发布。下文各阶段的“未接线/未发布”是实现时
+边界记录，不等于上述组件都未交付；也不能把组件发布当整票可用或已完成。
+
+### 官方 ChatGPT 登录增量（开发中，不在上述发布包中）
+
+`agent-node/src/runtime/codex-managed-login.ts` 提供单次设备码登录状态机。
+调用方必须持有一个独立私有 draft CODEX_HOME 和受信 Codex 进程；不复用活跃节点
+home，不复制别的账号文件。开始前 `account/read` 必须为空；只调用托管设备码流，
+不接入外部 access-token 模式。只有对应 loginId 的成功通知及 ChatGPT account
+回读同时成立，才标记 authenticated；客户端公开状态不含 email、token 或原始错误。
+取消只针对当前 loginId 并关闭该 draft 进程；成功不触发节点应用、模型切换或推理。
+所有权、draft 目录持久化、Hub 操作接口及客户端交互尚未接通，不能直接对外使用。
+
+现有 stdio 客户端增加显式 `replaceEnv`，用于新登录进程不继承父进程的 API Key
+或 CODEX_HOME；旧调用方默认行为不变。调用方必须使用此模式并显式提供最小环境。
+已用实际 Codex `0.159.2` 的生成 schema 确认设备码协议，以及隔离 account/read；
+尚未进行真实用户登录，不能据此宣称官方账号切换可用。
+
+设计依据：[OpenAI Codex App Server authentication](https://learn.chatgpt.com/docs/app-server#authentication-endpoints)。
+不新增生产端口、服务或密钥来源；这段状态机尚未接线，生产恢复/回滚流程不变。
+后续 draft 凭据须由 daemon 私有目录及加密备份管理，Git 不能重建用户登录状态。
+
 ## 用户确认的层级
 
 Daemon → Provider → Runtime（首片 codex-tui）→ 登录 / API Key → 配置 → 模型。
