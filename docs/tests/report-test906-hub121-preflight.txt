@@ -1,0 +1,41 @@
+Hub #906 — offline production-shape schema preflight
+Observed: 2026-10-11 12:18 +08
+Result: PASS (schema migration only; NOT production deployment).
+
+Source: main b4413131b73c52c286beec46509773716698d89f.
+Published Hub: @sleep2agi/commhub-server@0.9.0-preview.121.
+Formal release run: 38105661161 SUCCESS.
+Tarball SHA1: b890a4580ce83ad254df829d1d19bc67daa79847.
+Tarball integrity: sha512-iuDcA+oagXdSrmwFDzJWEVm95RRbG4ITGfgFgUux/4PpJ2nsE3tc9YEM3bBuAspwt9ed2hyCdRi7FI0Bcb9o9w==.
+Zod: 4.6.5, exact server/package-lock.json integrity checked in drive.mjs.
+Bun: 1.4.0 (same executable as running Hub, mounted read-only).
+Bun SHA256: 33d56b070be6a9e3da0ab013038b43d1645d0534ca811ecdba4472599117eb4b.
+
+Input was an owner-only VACUUM INTO consistent backup of running Hub .115.
+No live DB mount. Backup is private operator data and is NOT in Git/artifacts.
+Docker had no network, read-only root, no credentials, a private tmpfs DB copy.
+Only src/db.ts was imported. No HTTP server, scheduler or node dispatch ran.
+First attempt stopped on missing offline zod dependency/EROFS (not a product
+migration failure). Added the lockfile-pinned zod tarball, then one rerun passed.
+
+Both before/after PRAGMA integrity_check returned ok.
+Unchanged key-table row counts:
+  sessions 318; tasks 75019; nodes 288; networks 7;
+  requirements 948; api_tokens 3246; user_inbox 2190.
+New daemon_provider_snapshots/writes/applications tables exist and are empty.
+Original backup hash before/after:
+  SHA256 3e60c87923cbd4dfb6de84a201ca74cf6ed04ecd0f316d930fe2d15722251756.
+Container removed by --rm. No production restart/config change or new tasks.
+
+Reproduce after obtaining a fresh consistent offline backup and the exact inputs:
+  sg docker -c 'bash tests/test906-hub-upgrade-preflight/run.sh <backup>/before.db <packages>/hub121.tgz <packages>/zod.tgz <runtime>/bun'
+The operator must replace placeholders; do not point the command at a live DB.
+
+Boundary: counts/integrity do not prove every row's bytes are identical, nor
+HTTP/auth compatibility, vault decryption, fleet recovery or a complete upgrade.
+This evidence only clears the schema preflight for this backup. Actual cutover
+still requires the existing deploy/hub/README.md steps, a fresh backup if delayed,
+an authoritative launcher preserving the deployed side-thread setting, exact
+version readback, and fleet heartbeat/ack observations. CLI .163 is still not
+downloadable, and desktop .235 is not yet published. Android .235 publication
+is independent (run38110423323; not evidence of production Provider availability).
