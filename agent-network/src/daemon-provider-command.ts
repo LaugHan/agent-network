@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { readSync } from "node:fs";
 import { DaemonProviderError, DaemonProviderStore } from "./daemon-provider-store";
 
-export const DAEMON_PROVIDER_USAGE = "anet daemon provider <list|put> <daemon> [--revision N] (put reads one private JSON document from stdin; no key in argv)";
+export const DAEMON_PROVIDER_USAGE = "anet daemon provider <list|put> <daemon> [--revision N] [--request dps_UUID] (put reads one private JSON document from stdin; no key in argv)";
 export function readProviderInput(fd = 0): string {
   const chunks: Buffer[] = [];
   let total = 0;
@@ -19,7 +19,8 @@ export function runDaemonProvider(args: string[], deps: { nodesDir: string; read
   const [action, daemon, ...rest] = args;
   if (!["list", "put"].includes(action) || !daemon || !/^[\p{L}\p{N}][\p{L}\p{N}_.-]{0,99}$/u.test(daemon)
     || (action === "list" && rest.length !== 0)
-    || (action === "put" && (rest.length !== 2 || rest[0] !== "--revision" || !/^(0|[1-9][0-9]*)$/.test(rest[1])))) {
+    || (action === "put" && (![2, 4].includes(rest.length) || rest[0] !== "--revision" || !/^(0|[1-9][0-9]*)$/.test(rest[1])
+      || (rest.length === 4 && (rest[2] !== '--request' || !/^dps_[a-f0-9-]{36}$/.test(rest[3])))))) {
     deps.print(DAEMON_PROVIDER_USAGE); return 2;
   }
   try {
@@ -30,7 +31,7 @@ export function runDaemonProvider(args: string[], deps: { nodesDir: string; read
       if (Buffer.byteLength(input) > 64 * 1024) throw new DaemonProviderError("input_too_large");
       let value: unknown;
       try { value = JSON.parse(input); } catch { throw new DaemonProviderError("invalid_json"); }
-      deps.print(JSON.stringify({ ok: true, ...store.upsert(value, Number(rest[1])) }));
+      deps.print(JSON.stringify({ ok: true, ...store.upsert(value, Number(rest[1]), rest[3]) }));
     }
     return 0;
   } catch (error) {

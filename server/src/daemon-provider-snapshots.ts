@@ -1,9 +1,11 @@
 // #906: human-requested readback of ONE daemon's private Provider metadata.
 // Hub registry is not a fallback. No credential values enter this protocol.
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from 'node:util';
 import { db } from "./db";
 import { getUserNetworkRole } from "./auth";
 import { validateDaemonProviderSnapshot } from "./shared/daemon-provider-snapshot";
+import { encryptSecret, decryptSecret, VaultError } from './vault';
 
 type Human = { userId?: string | null; isNode: boolean; networkId: string | null };
 type Daemon = { ok: false; error: string } | { ok: true; networkId: string; daemonNodeId: string; daemonAlias: string };
@@ -27,7 +29,52 @@ function expire(networkId: string, daemonId?: string) {
   db.run(`UPDATE daemon_provider_snapshots SET status='expired', error='request_expired'
     WHERE network_id=?1 AND status='pending' AND expires_at <= ?2
     AND (?3 IS NULL OR daemon_node_id=?3)`, [networkId, Date.now(), daemonId ?? null]);
+  db.run(`DELETE FROM daemon_provider_writes WHERE request_id IN
+    (SELECT request_id FROM daemon_provider_snapshots WHERE network_id=?1 AND status!='pending')`, [networkId]);
   db.run(`DELETE FROM daemon_provider_snapshots WHERE network_id=?1 AND expires_at < ?2`, [networkId, Date.now() - 7 * 86400_000]);
+}
+/** Validate the complete public projection before encrypting the private input. */
+function validateWrite(provider: any, networkId: string, daemonId: string) {
+  if (Buffer.byteLength(JSON.stringify(provider) || '') > 64 * 1024) throw new Error('invalid_provider');
+  const publicProvider = { ...provider, runtimes: provider?.runtimes?.map((r: any) => ({ ...r,
+    auth: r.auth?.map((a: any) => {
+      const { key, ...rest } = a;
+      if (a.kind === 'chatgpt' && key !== undefined) throw new Error('invalid_provider');
+      if (key !== undefined && (typeof key !== 'string' || !key || key.length > 8192 || /[\s\x00-\x1f\x7f]/.test(key))) throw new Error('invalid_provider');
+      // Only CLI write fields may be supplied; public-state flags are not writable.
+      if (Object.keys(a).some(k => !['id','kind','models','baseUrl','key'].includes(k))) throw new Error('invalid_provider');
+      return { ...rest, credential_present: a.kind === 'api_key', verification: 'not_checked', application: 'not_applied' };
+    }),
+  })) };
+  validateDaemonProviderSnapshot({ network_id: networkId, daemon_node_id: daemonId, source: 'daemon', revision: 0, providers: [publicProvider] }, networkId, daemonId);
+  return publicProvider;
+}
+export function requestProviderWrite(h: Human, daemonId: string, expectedRevision: number, provider: unknown) {
+  const refusal = authorize(h); if (refusal) return refusal;
+  if (!daemonExists(h.networkId!, daemonId)) return denied('daemon_not_found');
+  if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0 || expectedRevision >= Number.MAX_SAFE_INTEGER) return denied('invalid_revision');
+  try { validateWrite(provider, h.networkId!, daemonId); } catch { return denied('invalid_provider'); }
+  expire(h.networkId!, daemonId);
+  if (db.get('SELECT request_id FROM daemon_provider_snapshots WHERE network_id=?1 AND daemon_node_id=?2 AND status=\'pending\'', h.networkId!, daemonId)) return denied('provider_snapshot_busy');
+  try {
+    const enc = encryptSecret(JSON.stringify({ network_id: h.networkId, daemon_node_id: daemonId, provider }));
+    const requestId = `dps_${randomUUID()}`, now = Date.now();
+    db.transaction(() => {
+      db.run(`INSERT INTO daemon_provider_snapshots (request_id,network_id,daemon_node_id,requested_by,status,created_at,expires_at)
+        VALUES (?1,?2,?3,?4,'pending',?5,?6)`, [requestId, h.networkId!, daemonId, h.userId!, now, now + 120_000]);
+      db.run(`INSERT INTO daemon_provider_writes (request_id,expected_revision,ciphertext,iv,tag) VALUES (?1,?2,?3,?4,?5)`,
+        [requestId, expectedRevision, enc.ciphertext, enc.iv, enc.tag]);
+    });
+    return { ok: true as const, request_id: requestId, status: 'pending', expires_at: now + 120_000 };
+  } catch (error) { return denied(error instanceof VaultError ? error.code : 'provider_write_unavailable'); }
+}
+function privateWrite(requestId: string, networkId: string, daemonId: string) {
+  const row = db.get<{ expected_revision: number; ciphertext: any; iv: any; tag: any }>('SELECT * FROM daemon_provider_writes WHERE request_id=?1', requestId);
+  if (!row) return null;
+  const payload = JSON.parse(decryptSecret({ ciphertext: Buffer.from(row.ciphertext), iv: Buffer.from(row.iv), tag: Buffer.from(row.tag) }));
+  if (payload.network_id !== networkId || payload.daemon_node_id !== daemonId) throw new Error('scope_mismatch');
+  validateWrite(payload.provider, networkId, daemonId);
+  return { expected_revision: row.expected_revision, provider: payload.provider };
 }
 export function requestProviderSnapshot(h: Human, daemonId: string) {
   const refusal = authorize(h); if (refusal) return refusal;
@@ -53,15 +100,19 @@ export function getProviderSnapshot(h: Human, requestId: string) {
     expires_at: row.expires_at, observed_at: row.observed_at, error: row.error,
     snapshot: row.snapshot_json ? JSON.parse(row.snapshot_json) : null };
 }
-export function pullProviderSnapshots(d: Daemon) {
+export function pullProviderSnapshots(d: Daemon, acceptWrites = false) {
   if (!d.ok) return denied("caller_not_a_daemon");
   if (!daemonExists(d.networkId, d.daemonNodeId)) return denied("caller_not_a_daemon");
   expire(d.networkId, d.daemonNodeId);
   const requests = db.all<{ request_id: string; expires_at: number }>(`SELECT request_id,expires_at FROM daemon_provider_snapshots
     WHERE network_id=?1 AND daemon_node_id=?2 AND status='pending' ORDER BY created_at LIMIT 20`, d.networkId, d.daemonNodeId);
-  return { ok: true, requests };
+  try { return { ok: true, requests: requests.flatMap(r => {
+    if (!acceptWrites && db.get('SELECT request_id FROM daemon_provider_writes WHERE request_id=?1', r.request_id)) return [];
+    const write = privateWrite(r.request_id, d.networkId, d.daemonNodeId);
+    return [write ? { ...r, operation: 'put', ...write } : r];
+  }) }; } catch { return denied('provider_write_unavailable'); }
 }
-export function ackProviderSnapshot(d: Daemon, requestId: string, snapshot?: unknown, failed = false) {
+export function ackProviderSnapshot(d: Daemon, requestId: string, snapshot?: unknown, failed = false, appliedRevision?: number) {
   if (!d.ok || !daemonExists(d.networkId, d.daemonNodeId)) return denied("caller_not_a_daemon");
   expire(d.networkId, d.daemonNodeId);
   const row = db.get<Row>(`SELECT * FROM daemon_provider_snapshots WHERE request_id=?1 AND network_id=?2 AND daemon_node_id=?3`, requestId, d.networkId, d.daemonNodeId);
@@ -73,10 +124,24 @@ export function ackProviderSnapshot(d: Daemon, requestId: string, snapshot?: unk
   if (!failed) {
     try { safe = validateDaemonProviderSnapshot(snapshot, d.networkId, d.daemonNodeId); }
     catch { return denied("invalid_provider_snapshot"); }
+    try {
+      const write = privateWrite(requestId, d.networkId, d.daemonNodeId);
+      if (write) {
+        const actual = safe as any;
+        if (appliedRevision !== write.expected_revision + 1 || actual.revision !== appliedRevision) return denied('provider_write_unconfirmed');
+        const expected = validateWrite(write.provider, d.networkId, d.daemonNodeId);
+        const saved = actual.providers.find((p: any) => p.id === expected.id);
+        // CLI canonicalizes label and endpoint. No credential is compared or returned here.
+        expected.label = expected.label.trim();
+        for (const r of expected.runtimes) for (const a of r.auth) if (a.baseUrl) a.baseUrl = new URL(a.baseUrl).toString().replace(/\/$/, '');
+        if (!isDeepStrictEqual(saved, expected)) return denied('provider_write_unconfirmed');
+      }
+    } catch { return denied('provider_write_unconfirmed'); }
   }
   db.run(`UPDATE daemon_provider_snapshots SET status=?1, snapshot_json=?2, error=?3, observed_at=?4
     WHERE request_id=?5 AND status='pending'`, [failed ? "failed" : "succeeded", safe ? JSON.stringify(safe) : null,
     failed ? "provider_snapshot_unavailable" : null, Date.now(), requestId]);
   const accepted = db.get<Row>("SELECT * FROM daemon_provider_snapshots WHERE request_id=?1", requestId);
+  db.run('DELETE FROM daemon_provider_writes WHERE request_id=?1', [requestId]);
   return { ok: true, status: accepted!.status };
 }

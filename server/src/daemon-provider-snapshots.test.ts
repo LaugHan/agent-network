@@ -13,6 +13,7 @@ import { register, createNetworkTokenForNode } from "./auth";
 const net = "net_dps906", user = "u_dps906", node = "node_dps906", token = "token_dps906", alias = "daemon906";
 const root = mkdtempSync(join(tmpdir(), "dps906-"));
 function cleanup() {
+  db.run('DELETE FROM daemon_provider_writes WHERE request_id IN (SELECT request_id FROM daemon_provider_snapshots WHERE network_id=?1)', [net]);
   for (const t of ["daemon_provider_snapshots", "nodes", "api_tokens", "network_members"]) db.run(`DELETE FROM ${t} WHERE network_id=?1`, [net]);
   db.run("DELETE FROM networks WHERE network_id=?1", [net]);
   db.run("DELETE FROM users WHERE user_id=?1", [user]);
@@ -39,6 +40,44 @@ function client(kind = "human", network = net) {
 }
 const snapshot = () => ({ network_id: net, daemon_node_id: node, revision: 0, source: "daemon", providers: [] });
 const request = () => client()("daemon_provider_snapshot", { action: "refresh", network_id: net, id: node });
+
+test('write core chain: encrypted Hub request → target daemon CLI → durable replay → public readback', async () => {
+  process.env.ANET_HUB_SECRET_VAULT_KEY = '42'.repeat(32); // isolated fixture only
+  const work = mkdtempSync(join(root, 'write-'));
+  const dir = join(work, '.anet/nodes', alias); mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(dir, 'config.json'), JSON.stringify({ role: 'host_supervisor', network_id: net, node_id: node }), { mode: 0o600 });
+  const key = 'TEST-ONLY-private-write-key';
+  const provider = { id: 'deepseek', label: 'DeepSeek', enabled: true, runtimes: [{ runtime: 'codex-tui', auth: [
+    { id: 'work', kind: 'api_key', models: ['model-a'], baseUrl: 'https://api.example.test/v1', key },
+  ] }] };
+  const human = client(), daemon = client('daemon');
+  const r = await human('daemon_provider_snapshot', { action: 'put', id: node, network_id: net, revision: 0, provider });
+  expect(r.ok).toBe(true); expect(JSON.stringify(r)).not.toContain(key);
+  const encrypted = db.get<any>('SELECT * FROM daemon_provider_writes WHERE request_id=?1', r.request_id);
+  expect(Buffer.from(encrypted.ciphertext).toString()).not.toContain(key);
+  expect((await daemon('pull_daemon_provider_snapshots')).requests).toEqual([]); // old/insecure readers receive no key
+  expect((await client('daemon', 'other')('pull_daemon_provider_snapshots', { accept_writes: true })).ok).toBe(false);
+  let drop = true;
+  const deps = { workDir: work, alias, networkId: net, daemonId: node, serverUrl: 'https://hub.example.test', warn: () => {},
+    callCommHub: async (name: string, args: any) => {
+      if (name === 'ack_daemon_provider_snapshot' && drop) { drop = false; throw Error('lost acknowledgement'); }
+      return daemon(name, args);
+    } };
+  await reconcileProviderSnapshots(deps);
+  expect(new DaemonProviderStore(dir).list().revision).toBe(1);
+  await reconcileProviderSnapshots(deps); // same request must not write revision 2 or lose success
+  const read = await human('daemon_provider_snapshot', { action: 'read', id: r.request_id, network_id: net });
+  expect(read.status).toBe('succeeded'); expect(read.snapshot.revision).toBe(1);
+  expect(read.snapshot.providers[0].runtimes[0].auth[0].models).toEqual(['model-a']);
+  expect(JSON.stringify(read)).not.toContain(key);
+  expect(db.get('SELECT * FROM daemon_provider_writes WHERE request_id=?1', r.request_id)).toBeNull();
+  const conflict = await human('daemon_provider_snapshot', { action: 'put', id: node, network_id: net, revision: 0, provider: { ...provider, label: 'must not overwrite' } });
+  await reconcileProviderSnapshots(deps);
+  expect((await human('daemon_provider_snapshot', { action: 'read', id: conflict.request_id, network_id: net })).status).toBe('failed');
+  expect(new DaemonProviderStore(dir).list().providers[0].label).toBe('DeepSeek');
+  db.run("UPDATE network_members SET role='member' WHERE user_id=?1 AND network_id=?2", [user, net]);
+  expect((await human('daemon_provider_snapshot', { action: 'put', id: node, network_id: net, revision: 1, provider })).error).toBe('provider_admin_required');
+});
 
 test("human authorization precedes dispatch; unknown, nodes and non-admins cannot request", async () => {
   expect((await client("anonymous")("daemon_provider_snapshot", { action: "refresh", network_id: net, id: node })).error).toBe("user_token_required");

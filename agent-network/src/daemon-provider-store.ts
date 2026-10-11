@@ -4,6 +4,7 @@
 // a secret-bearing object onto a response. Runtime application is a separate gate.
 import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { atomicWritePrivateJson, ensurePrivateDirectory } from "./private-state";
 
 export type ProviderAuthKind = "chatgpt" | "api_key";
@@ -11,7 +12,8 @@ type Auth = { id: string; kind: ProviderAuthKind; models: string[]; baseUrl?: st
 type Runtime = { runtime: "codex-tui"; auth: Auth[] };
 type Provider = { id: string; label: string; enabled: boolean; runtimes: Runtime[] };
 type Scope = { network_id: string; daemon_node_id: string };
-type State = Scope & { schema: 1; revision: number; providers: Provider[] };
+type State = Scope & { schema: 1; revision: number; providers: Provider[];
+  last_write?: { request_id: string; input_hash: string; revision: number } };
 
 export class DaemonProviderError extends Error {
   constructor(public readonly code: string) { super(code); }
@@ -132,7 +134,11 @@ export class DaemonProviderStore {
     if (state.network_id !== this.scope.network_id || state.daemon_node_id !== this.scope.daemon_node_id) fail("scope_mismatch");
     const providers = state.providers.map(x => parseProvider(x));
     unique(providers.map(x => x.id));
-    return { ...this.scope, schema: 1, revision: state.revision as number, providers };
+    const receipt = state.last_write as State['last_write'];
+    if (receipt && (typeof receipt.request_id !== 'string' || !/^dps_[a-f0-9-]{36}$/.test(receipt.request_id)
+      || typeof receipt.input_hash !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.input_hash)
+      || receipt.revision !== state.revision)) fail('invalid_private_state');
+    return { ...this.scope, schema: 1, revision: state.revision as number, providers, ...(receipt ? { last_write: receipt } : {}) };
   }
   private publicState(state: State) {
     return { ...this.scope, revision: state.revision, source: "daemon" as const,
@@ -146,8 +152,9 @@ export class DaemonProviderStore {
         })) })) })) };
   }
   list() { return this.publicState(this.read()); }
-  upsert(value: unknown, expectedRevision: number) {
+  upsert(value: unknown, expectedRevision: number, requestId?: string) {
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) fail("invalid_revision");
+    if (requestId !== undefined && !/^dps_[a-f0-9-]{36}$/.test(requestId)) fail('invalid_request');
     if (existsSync(this.root)) this.checkRoot();
     else ensurePrivateDirectory(this.root);
     this.checkRoot();
@@ -157,6 +164,11 @@ export class DaemonProviderStore {
     catch { fail("provider_store_busy"); }
     try {
       const state = this.read();
+      const inputHash = createHash('sha256').update(JSON.stringify([expectedRevision, value])).digest('hex');
+      if (requestId && state.last_write?.request_id === requestId) {
+        if (state.last_write.input_hash !== inputHash) fail('request_conflict');
+        return this.publicState(state); // Durable receipt makes a lost acknowledgement replay harmless.
+      }
       if (state.revision !== expectedRevision) fail("revision_conflict");
       const providerId = id(object(value).id);
       const provider = parseProvider(value, state.providers.find(p => p.id === providerId));
@@ -167,6 +179,8 @@ export class DaemonProviderStore {
       } else state.providers[index] = provider;
       if (state.revision >= Number.MAX_SAFE_INTEGER) fail("revision_limit");
       state.revision++;
+      delete state.last_write;
+      if (requestId) state.last_write = { request_id: requestId, input_hash: inputHash, revision: state.revision };
       if (Buffer.byteLength(JSON.stringify(state, null, 2) + "\n") > 4 * 1024 * 1024) fail("provider_store_too_large");
       atomicWritePrivateJson(join(this.root, "state.json"), state);
       return this.publicState(this.read());

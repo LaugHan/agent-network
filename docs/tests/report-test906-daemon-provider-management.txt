@@ -108,3 +108,17 @@ Post-restack verification (2026-10-11T00:53Z):
   Private storage regressions on current mounted source: 17/0 + 8/0.
   Trigger guard: 102 CI-executed directories covered; doc pin coverage remains
   explicitly partial as above. No runtime/secret/account application tested.
+
+2026-10-11 09:00 CST incremental core-write verification (user requested core only):
+  Built tests/test906-daemon-provider-management/Dockerfile.transport.
+  Ran ONLY test-name-pattern "write core chain" (11 old tests filtered, not rerun).
+  Result: 1 pass / 0 fail, 14 assertions, exit 0.
+  Source CLI + daemon handler: encrypted Hub request -> target private store ->
+  redacted receipt. Lost ACK replay keeps revision 1; stale revision cannot
+  overwrite. Member write and foreign-daemon read rejected; legacy/insecure
+  pull receives no encrypted-write payload. Secret absent from public receipt,
+  encrypted staging removed after acknowledgment. Fixture secret only.
+  Image manifest e9da34e1ef8ec5796aeca433332986f6b1cb8322f10a4cf756818a901e016420.
+  No actual model call, native client, official login or production deployment
+  covered by this result. Client form implementation proceeds independently.
+  Test container --rm; fixture directories removed; test image retained.

@@ -14,8 +14,8 @@ Daemon → Provider → Runtime（首片 codex-tui）→ 登录 / API Key → �
 `anet daemon provider list <daemon>` 返回脱敏配置；
 `anet daemon provider put <daemon> --revision N` 从标准输入读取不超过 64 KiB 的 JSON。
 工作目录沿用现有 CLI 的 `.anet/nodes/<daemon>` 解析，不接受任意路径或命令行 key。
-客户端/远程 Hub 不得直接依赖这个本地操作者权限边界。下面的远程协议仅开放脱敏回读，
-尚未开放远程写入、凭据运输、登录或节点应用。
+客户端/远程 Hub 不得直接依赖这个本地操作者权限边界。远程协议已增加受控配置写入，
+官方登录和节点应用仍未接通；配置写入成功不是模型调用成功。
 
 配置示例（假数据；真实密钥不得写入 shell 历史、提交或测试镜像）：
 
@@ -66,7 +66,14 @@ application=not_applied；模型清单是用户配置，不是 entitlement 或�
 
 ## 下一步必须完成（不能拿本片替代）
 
-1. 在上述回读链路上扩展受控写入与安全凭据运输；普通任务/审计/响应不得保存 key 或 OAuth 内容。
+1. 远程写入：同一 MCP 工具 `action=put,id=<daemon>,revision,provider`；仅人类 owner/admin。
+   `daemon_provider_writes` 用既有 vault AES-GCM 加密暂存输入，公开回执不含密钥。
+   必须配置 `ANET_HUB_SECRET_VAULT_KEY`，缺失时明确失败；不为此修改生产密钥。
+   Daemon 仅在 Hub URL 为 HTTPS/回环 HTTP 时声明 `accept_writes=true`，旧 daemon 不会收到写请求/密钥。
+   本地 CLI 通过 stdin 写入，`--request dps_UUID` 持久化单次写回执；丢回执重试不重复改 revision。
+   保存结果同时验证 scope、revision 和公开配置，成功/失败后删除暂存密文；过期在下次协议访问时清理。
+   客户端到 Hub 同样要求 HTTPS/回环；反代应禁用请求体记录。保存不自动探测、登录或重启任何节点。
+   request/status 历史包含操作者和目标，未将请求内容放入普通消息任务。
 2. 客户端 Provider 管理页替换演示壳，按上述层级读写同一份真实配置；切换 daemon 丢弃旧请求。
 3. 官方账号登录需本人完成，优先核对已安装 Codex 的 device-code 能力和取消/状态接口。
    不复制其他节点 auth.json，不假设共享 refresh-token 安全。
@@ -85,10 +92,12 @@ application=not_applied；模型清单是用户配置，不是 entitlement 或�
   `agent-node/src/runtime/daemon-provider-snapshot.ts` 由既有 daemon 的 SSE/重连处理调用；
   Hub 由 `server/src/tools.ts` 注册协议，`server/src/db.ts` 增量建表。
 - 拓扑：无端口、反代或隧道改动。
-- 密钥：本地操作者经 stdin 提供，daemon 私有 provider-store/state.json 持有。
+- 密钥：本地操作者经 stdin 或已鉴权客户端通过安全传输提供，daemon 私有 provider-store/state.json 持有。
+  Hub 暂存密文依赖运维秘密来源注入 `ANET_HUB_SECRET_VAULT_KEY`；不能提交实际值或自动生成替换现存值。
   不入 Git、不回读、不声称磁盘加密；生产备份必须加密并限制访问。
 - 换版：只能使用 main 正式发布物。list 回读 scope/revision；本测试分支不得部署为正式版本。
 - 回滚：旧版本不会消费新增存储和快照表；保留它们，不删除原 node config、登录或其他数据。
+  降级前等待 pending 写入终态；不可把软件降级视为撤销已保存配置，恢复旧配置需加密备份。
   不将回滚软件等同撤销已外泄供应商 key；后者需供应商侧撤销。
 - 数据：Git 只能重建实现，不能重建账号/key/用户配置。加密备份目的地、密钥保管、保留期尚未
   指定；未做生产恢复演练，不宣称全机可恢复。崩溃遗留锁需操作者核对写进程已终止后处理。

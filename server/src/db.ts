@@ -539,6 +539,11 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_daemon_provider_pending
   ON daemon_provider_snapshots(network_id, daemon_node_id, status)`);
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_daemon_provider_inflight
   ON daemon_provider_snapshots(network_id, daemon_node_id) WHERE status='pending'`);
+// One encrypted mutation payload per request; public receipt remains secret-free.
+db.exec(`CREATE TABLE IF NOT EXISTS daemon_provider_writes (
+  request_id TEXT PRIMARY KEY, expected_revision INTEGER NOT NULL,
+  ciphertext BLOB NOT NULL, iv BLOB NOT NULL, tag BLOB NOT NULL
+)`);
 
 // At most one row per node may be in a non-terminal state at a time
 // (single-flight enforced at the tool layer; this table just stores).
