@@ -18,7 +18,8 @@ export function validCodexInventory(v: any): boolean {
     }
     if (r.status !== 'observed' || !fields(r, ['node_id', 'alias', 'status', 'runtime', 'home_ref', 'home_source',
       'config_status', 'configured_provider', 'configured_model', 'provider_ids', 'auth_kind', 'credential_status',
-      'account_fingerprint', 'verification', 'effective_state', 'node_configured_model'])) return false;
+      'account_fingerprint', 'verification', 'effective_state', 'node_configured_model', 'config_revision'])) return false;
+    if (r.config_revision !== undefined && r.config_revision !== null && (typeof r.config_revision !== 'string' || !/^[a-f0-9]{64}$/.test(r.config_revision))) return false;
     if (!nullable(r.runtime) || !/^[a-f0-9]{16}$/.test(r.home_ref)
       || !['host_default', 'config.codexHome', 'node-codex-home', 'config.env'].includes(r.home_source)
       || !['read', 'missing', 'unreadable'].includes(r.config_status) || !nullable(r.configured_provider)

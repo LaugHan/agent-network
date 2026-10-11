@@ -3,6 +3,7 @@ import { afterAll, beforeEach, expect, test } from "bun:test";
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from 'node:crypto';
 import { db } from "./db";
 import { registerTools } from "./tools";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -13,7 +14,9 @@ import { register, createNetworkTokenForNode } from "./auth";
 const net = "net_dps906", user = "u_dps906", node = "node_dps906", token = "token_dps906", alias = "daemon906";
 const root = mkdtempSync(join(tmpdir(), "dps906-"));
 function cleanup() {
+  db.run('DELETE FROM daemon_provider_applications WHERE request_id IN (SELECT request_id FROM daemon_provider_snapshots WHERE network_id=?1)', [net]);
   db.run('DELETE FROM daemon_provider_writes WHERE request_id IN (SELECT request_id FROM daemon_provider_snapshots WHERE network_id=?1)', [net]);
+  db.run('DELETE FROM node_daemon_bindings WHERE network_id=?1', [net]);
   for (const t of ["daemon_provider_snapshots", "nodes", "api_tokens", "network_members"]) db.run(`DELETE FROM ${t} WHERE network_id=?1`, [net]);
   db.run("DELETE FROM networks WHERE network_id=?1", [net]);
   db.run("DELETE FROM users WHERE user_id=?1", [user]);
@@ -40,6 +43,39 @@ function client(kind = "human", network = net) {
 }
 const snapshot = () => ({ network_id: net, daemon_node_id: node, revision: 0, source: "daemon", providers: [] });
 const request = () => client()("daemon_provider_snapshot", { action: "refresh", network_id: net, id: node });
+
+test('application transport: scoped intent, capability gate, exact public receipt and changed binding refusal', async () => {
+  const human = client(), daemon = client('daemon');
+  const child = 'node_apply906';
+  db.run("INSERT INTO nodes (node_id,node_name,alias,network_id,runtime) VALUES (?1,'child906','child906',?2,'codex-app-server')", [child, net]);
+  db.run("INSERT INTO node_daemon_bindings (request_id,network_id,node_id,daemon_node_id,workdir,requested_by,status,created_at,updated_at) VALUES ('binding_apply906',?1,?2,?3,?4,?5,'active',1,1)", [net, child, node, root, user]);
+  const selection = { node_id: child, node_revision: 'a'.repeat(64), provider_id: 'custom', auth_id: 'work', model: 'model-a', confirm_restart: true };
+  const args = { action: 'apply', id: node, network_id: net, revision: 1, provider: selection };
+  expect((await human('daemon_provider_snapshot', { ...args, provider: { ...selection, key: 'TEST-ONLY-key' } })).error).toBe('invalid_application');
+  expect((await human('daemon_provider_snapshot', { ...args, provider: { ...selection, node_id: node } })).error).toBe('application_target_not_bound');
+  expect((await daemon('daemon_provider_snapshot', args)).ok).toBe(false);
+  const r = await human('daemon_provider_snapshot', args);
+  expect(r.ok).toBe(true); expect(r.request_id).toMatch(/^dpa_/);
+  expect((await daemon('pull_daemon_provider_snapshots', { accept_writes: true })).requests).toEqual([]);
+  const dispatch = await daemon('pull_daemon_provider_snapshots', { accept_applications: true });
+  expect(dispatch.requests[0]).toMatchObject({ request_id: r.request_id, operation: 'apply', alias: 'child906', expected_revision: 1, selection });
+  const receipt = { status: 'applied', request_id: r.request_id, node_id: child, provider_id: 'custom', auth_id: 'work', model: 'model-a',
+    runtime_provider: 'anet_' + createHash('sha256').update(JSON.stringify(['custom', 'work'])).digest('hex').slice(0, 20), node_revision: 'c'.repeat(64), provider_revision: 1, verification: 'runtime_confirmed', applied_at: Date.now() };
+  // This is a protocol fixture, NOT evidence a runtime has switched.
+  for (const bad of [{ ...receipt, model: 'wrong' }, { ...receipt, key: 'TEST-ONLY-key' }, { ...receipt, provider_revision: 2 }, { ...receipt, runtime_provider: 'anet_' + 'b'.repeat(20) }]) {
+    expect((await daemon('ack_daemon_provider_snapshot', { request_id: r.request_id, application: bad })).error).toBe('invalid_application_receipt');
+  }
+  expect((await daemon('ack_daemon_provider_snapshot', { request_id: r.request_id, snapshot: snapshot() })).ok).toBe(false);
+  expect((await daemon('ack_daemon_provider_snapshot', { request_id: r.request_id, application: receipt })).status).toBe('succeeded');
+  await daemon('ack_daemon_provider_snapshot', { request_id: r.request_id, failed: true });
+  const read = await human('daemon_provider_snapshot', { action: 'read', id: r.request_id, network_id: net });
+  expect(read.status).toBe('succeeded'); expect(read.application).toEqual(receipt); expect(read.snapshot).toBeNull();
+  expect(db.get('SELECT * FROM daemon_provider_applications WHERE request_id=?1', r.request_id)).toBeNull();
+  const stale = await human('daemon_provider_snapshot', args);
+  db.run("UPDATE node_daemon_bindings SET daemon_node_id='other' WHERE request_id='binding_apply906'");
+  expect((await daemon('pull_daemon_provider_snapshots', { accept_applications: true })).requests).toEqual([]);
+  expect((await human('daemon_provider_snapshot', { action: 'read', id: stale.request_id, network_id: net })).error).toBe('application_target_not_bound');
+});
 
 test('write core chain: encrypted Hub request → target daemon CLI → durable replay → public readback', async () => {
   process.env.ANET_HUB_SECRET_VAULT_KEY = '42'.repeat(32); // isolated fixture only

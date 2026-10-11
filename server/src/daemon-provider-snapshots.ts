@@ -1,12 +1,13 @@
 // #906: human-requested readback of ONE daemon's private Provider metadata.
 // Hub registry is not a fallback. No credential values enter this protocol.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from 'node:util';
 import { db } from "./db";
 import { getUserNetworkRole } from "./auth";
 import { validateDaemonProviderSnapshot } from "./shared/daemon-provider-snapshot";
 import { encryptSecret, decryptSecret, VaultError } from './vault';
 import { buildControllableMap } from './node-lifecycle-controllable';
+import { validProviderApplicationSelection, validProviderApplicationReceipt, type ProviderApplicationSelection } from './shared/provider-application';
 
 export function providerScanTargets(networkId: string, daemonId: string) {
   const ownership = buildControllableMap(
@@ -41,6 +42,8 @@ function expire(networkId: string, daemonId?: string) {
     WHERE network_id=?1 AND status='pending' AND expires_at <= ?2
     AND (?3 IS NULL OR daemon_node_id=?3)`, [networkId, Date.now(), daemonId ?? null]);
   db.run(`DELETE FROM daemon_provider_writes WHERE request_id IN
+    (SELECT request_id FROM daemon_provider_snapshots WHERE network_id=?1 AND status!='pending')`, [networkId]);
+  db.run(`DELETE FROM daemon_provider_applications WHERE request_id IN
     (SELECT request_id FROM daemon_provider_snapshots WHERE network_id=?1 AND status!='pending')`, [networkId]);
   db.run(`DELETE FROM daemon_provider_snapshots WHERE network_id=?1 AND expires_at < ?2`, [networkId, Date.now() - 7 * 86400_000]);
 }
@@ -87,6 +90,34 @@ function privateWrite(requestId: string, networkId: string, daemonId: string) {
   validateWrite(payload.provider, networkId, daemonId);
   return { expected_revision: row.expected_revision, provider: payload.provider };
 }
+function applicationIntent(requestId: string) {
+  const row = db.get<{ expected_revision: number; selection_json: string }>('SELECT * FROM daemon_provider_applications WHERE request_id=?1', requestId);
+  if (!row) return null;
+  const selection = JSON.parse(row.selection_json);
+  if (!validProviderApplicationSelection(selection)) throw Error('invalid_application');
+  return { expected_revision: row.expected_revision, selection };
+}
+function boundApplicationTarget(networkId: string, daemonId: string, selection: ProviderApplicationSelection) {
+  return selection.node_id !== daemonId && providerScanTargets(networkId, daemonId).find(n => n.node_id === selection.node_id);
+}
+export function requestProviderApplication(h: Human, daemonId: string, revision: number, selection: unknown) {
+  const refusal = authorize(h); if (refusal) return refusal;
+  if (!daemonExists(h.networkId!, daemonId)) return denied('daemon_not_found');
+  if (!Number.isSafeInteger(revision) || revision < 0) return denied('invalid_revision');
+  if (!validProviderApplicationSelection(selection)) return denied('invalid_application');
+  try {
+    if (!boundApplicationTarget(h.networkId!, daemonId, selection)) return denied('application_target_not_bound');
+    expire(h.networkId!, daemonId);
+    const requestId = `dpa_${randomUUID()}`, now = Date.now();
+    db.transaction(() => {
+      db.run(`INSERT INTO daemon_provider_snapshots (request_id,network_id,daemon_node_id,requested_by,status,created_at,expires_at)
+        VALUES (?1,?2,?3,?4,'pending',?5,?6)`, [requestId, h.networkId!, daemonId, h.userId!, now, now + 600_000]);
+      db.run('INSERT INTO daemon_provider_applications (request_id,expected_revision,selection_json) VALUES (?1,?2,?3)',
+        [requestId, revision, JSON.stringify(selection)]);
+    });
+    return { ok: true as const, request_id: requestId, status: 'pending', expires_at: now + 600_000 };
+  } catch { return denied('provider_application_unavailable'); }
+}
 export function requestProviderSnapshot(h: Human, daemonId: string) {
   const refusal = authorize(h); if (refusal) return refusal;
   if (!daemonExists(h.networkId!, daemonId)) return denied("daemon_not_found");
@@ -109,27 +140,57 @@ export function getProviderSnapshot(h: Human, requestId: string) {
   if (!row) return denied("request_not_found");
   return { ok: true, request_id: row.request_id, daemon_node_id: row.daemon_node_id, status: row.status,
     expires_at: row.expires_at, observed_at: row.observed_at, error: row.error,
-    snapshot: row.snapshot_json ? JSON.parse(row.snapshot_json) : null };
+    snapshot: !row.request_id.startsWith('dpa_') && row.snapshot_json ? JSON.parse(row.snapshot_json) : null,
+    ...(row.request_id.startsWith('dpa_') ? { application: row.snapshot_json ? JSON.parse(row.snapshot_json) : null } : {}) };
 }
-export function pullProviderSnapshots(d: Daemon, acceptWrites = false) {
+export function pullProviderSnapshots(d: Daemon, acceptWrites = false, acceptApplications = false) {
   if (!d.ok) return denied("caller_not_a_daemon");
   if (!daemonExists(d.networkId, d.daemonNodeId)) return denied("caller_not_a_daemon");
   expire(d.networkId, d.daemonNodeId);
   const requests = db.all<{ request_id: string; expires_at: number }>(`SELECT request_id,expires_at FROM daemon_provider_snapshots
     WHERE network_id=?1 AND daemon_node_id=?2 AND status='pending' ORDER BY created_at LIMIT 20`, d.networkId, d.daemonNodeId);
-  try { return { ok: true, requests: requests.flatMap(r => {
+  try { return { ok: true, requests: requests.flatMap<Record<string, unknown>>(r => {
+    if (r.request_id.startsWith('dpa_')) {
+      if (!acceptApplications) return []; // old daemons must not consume applications as scans
+      const application = applicationIntent(r.request_id);
+      const target = application && boundApplicationTarget(d.networkId, d.daemonNodeId, application.selection);
+      if (!target) {
+        db.run("UPDATE daemon_provider_snapshots SET status='failed',error='application_target_not_bound',observed_at=?1 WHERE request_id=?2 AND status='pending'", [Date.now(), r.request_id]);
+        db.run('DELETE FROM daemon_provider_applications WHERE request_id=?1', [r.request_id]);
+        return [];
+      }
+      return [{ ...r, operation: 'apply', ...application!, alias: target.alias }];
+    }
     if (!acceptWrites && db.get('SELECT request_id FROM daemon_provider_writes WHERE request_id=?1', r.request_id)) return [];
     const write = privateWrite(r.request_id, d.networkId, d.daemonNodeId);
     return [write ? { ...r, operation: 'put', ...write } : { ...r, scan_targets: providerScanTargets(d.networkId, d.daemonNodeId) }];
   }) }; } catch { return denied('provider_write_unavailable'); }
 }
-export function ackProviderSnapshot(d: Daemon, requestId: string, snapshot?: unknown, failed = false, appliedRevision?: number) {
+export function ackProviderSnapshot(d: Daemon, requestId: string, snapshot?: unknown, failed = false, appliedRevision?: number, application?: unknown) {
   if (!d.ok || !daemonExists(d.networkId, d.daemonNodeId)) return denied("caller_not_a_daemon");
   expire(d.networkId, d.daemonNodeId);
   const row = db.get<Row>(`SELECT * FROM daemon_provider_snapshots WHERE request_id=?1 AND network_id=?2 AND daemon_node_id=?3`, requestId, d.networkId, d.daemonNodeId);
   if (!row) return denied("request_not_found");
   // First accepted receipt wins; reconnect replay cannot rewrite prior evidence.
   if (row.status !== "pending") return { ok: row.status === "succeeded" || row.status === "failed", status: row.status };
+  if (requestId.startsWith('dpa_')) {
+    if (snapshot !== undefined || appliedRevision !== undefined || (failed && application !== undefined)) return denied('invalid_application_receipt');
+    if (!failed) {
+      try {
+        const intent = applicationIntent(requestId);
+        if (!intent || !boundApplicationTarget(d.networkId, d.daemonNodeId, intent.selection)
+          || !validProviderApplicationReceipt(application, requestId, intent.expected_revision, intent.selection)
+          || (application as any).runtime_provider !== `anet_${createHash('sha256').update(JSON.stringify([intent.selection.provider_id, intent.selection.auth_id])).digest('hex').slice(0, 20)}`
+          || (application as any).applied_at < row.created_at - 30_000) return denied('invalid_application_receipt');
+      } catch { return denied('invalid_application_receipt'); }
+    }
+    db.run(`UPDATE daemon_provider_snapshots SET status=?1,snapshot_json=?2,error=?3,observed_at=?4
+      WHERE request_id=?5 AND status='pending'`, [failed ? 'failed' : 'succeeded', failed ? null : JSON.stringify(application),
+      failed ? 'provider_application_unavailable' : null, Date.now(), requestId]);
+    db.run('DELETE FROM daemon_provider_applications WHERE request_id=?1', [requestId]);
+    return { ok: true, status: failed ? 'failed' : 'succeeded' };
+  }
+  if (application !== undefined) return denied('invalid_application_receipt');
   let safe: unknown = null;
   if (failed && snapshot !== undefined) return denied("invalid_provider_snapshot");
   if (!failed) {

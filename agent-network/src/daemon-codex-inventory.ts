@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { parse } from 'smol-toml';
 import { codexLoginFactsFromText, isCodexNodeConfig } from './codex-node-login';
 import { resolveNodeCodexHome } from './codex-home-enforce';
+import { providerNodeRevision } from './daemon-provider-application';
 
 const obj = (v: any): Record<string, any> => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 const name = (v: unknown): v is string => typeof v === 'string' && /^[\p{L}\p{N}][\p{L}\p{N}_.-]{0,99}$/u.test(v);
@@ -61,47 +62,56 @@ function homeFacts(home: string) {
     account_fingerprint: account, verification: 'not_checked', effective_state: 'not_checked' };
 }
 
+/** Local registry resolution shared by discovery/application; no remote path. */
+export function resolveDaemonProviderTarget(nodesDir: string, target: { node_id: string; alias: string }, networkId: string) {
+  if (!name(target.alias) || !identifier(target.node_id)) throw Error('invalid_target');
+  const root = dirname(dirname(nodesDir));
+  const registry = obj(JSON.parse(read(join(root, '.anet', 'child-workdirs.json')) ?? '{}'));
+  const entry = Object.hasOwn(registry, target.alias) ? registry[target.alias] : undefined;
+  let candidates: string[];
+  if (entry && typeof entry === 'object' && entry.adopted === true) {
+    if (entry.node_id !== target.node_id || typeof entry.nodeDir !== 'string' || !isAbsolute(entry.nodeDir)) throw Error('identity_mismatch');
+    candidates = [entry.nodeDir];
+  } else {
+    if (entry !== undefined && (typeof entry !== 'string' || !isAbsolute(entry))) throw Error('invalid_registry');
+    const localRoot = entry ? join(entry, '.anet', 'nodes') : nodesDir;
+    directory(localRoot);
+    const names = readdirSync(localRoot).filter(name);
+    if (names.length > 1000) throw Error('registry_limit');
+    candidates = names.map(n => join(localRoot, n));
+  }
+  const matches: { dir: string; config: Record<string, any> }[] = [];
+  for (const dir of candidates) {
+    try {
+      const config = obj(JSON.parse(read(join(dir, 'config.json')) ?? '{}'));
+      if (config.node_id === target.node_id && (config.alias ?? config.node_name) === target.alias
+        && (!config.network_id || config.network_id === networkId)) matches.push({ dir, config });
+    } catch { /* inaccessible unrelated node is never read further */ }
+  }
+  if (matches.length !== 1) throw Error('target_unavailable');
+  return matches[0];
+}
+
 export function scanDaemonCodex(nodesDir: string, targets: unknown, networkId: string, hostHome = homedir()) {
   if (!Array.isArray(targets) || targets.length > 200 || targets.some(t => !name(t?.alias) || !identifier(t?.node_id)
     || Object.keys(t).some(k => !['node_id', 'alias'].includes(k)))
     || new Set(targets.map(t => t.node_id)).size !== targets.length) throw Error('invalid_scan_targets');
-  const root = dirname(dirname(nodesDir));
-  let registry: Record<string, any> = {}, registryUnreadable = false;
-  try { registry = obj(JSON.parse(read(join(root, '.anet', 'child-workdirs.json')) ?? '{}')); }
-  catch { registryUnreadable = true; }
   const rows = targets.map(target => {
     const base = { node_id: target.node_id, alias: target.alias };
     try {
-      if (registryUnreadable) throw Error('registry_unreadable');
-      const entry = Object.hasOwn(registry, target.alias) ? registry[target.alias] : undefined;
-      let candidates: string[];
-      if (entry && typeof entry === 'object' && entry.adopted === true) {
-        if (entry.node_id !== target.node_id || typeof entry.nodeDir !== 'string' || !isAbsolute(entry.nodeDir)) throw Error('identity_mismatch');
-        candidates = [entry.nodeDir];
-      } else {
-        if (entry !== undefined && (typeof entry !== 'string' || !isAbsolute(entry))) throw Error('invalid_registry');
-        const localRoot = entry ? join(entry, '.anet', 'nodes') : nodesDir;
-        directory(localRoot);
-        candidates = readdirSync(localRoot).slice(0, 1000).filter(name).map(n => join(localRoot, n));
-      }
-      const matches: { dir: string; config: Record<string, any> }[] = [];
-      for (const dir of candidates) {
-        try {
-          const config = obj(JSON.parse(read(join(dir, 'config.json')) ?? '{}'));
-          if (config.node_id === target.node_id && (config.alias ?? config.node_name) === target.alias
-            && (!config.network_id || config.network_id === networkId)) matches.push({ dir, config });
-        } catch { /* inaccessible unrelated node is never read further */ }
-      }
-      if (matches.length !== 1) return { ...base, status: 'unavailable' };
-      const { dir, config } = matches[0];
+      const { dir, config } = resolveDaemonProviderTarget(nodesDir, target, networkId);
       if (!isCodexNodeConfig(config)) return { ...base, status: 'not_codex' };
       const resolved = resolveNodeCodexHome({ nodeDir: dir, config });
       const home = resolved.codexHome ?? join(hostHome, '.codex');
       // An opaque reference distinguishes homes without disclosing machine paths.
       const homeRef = createHash('sha256').update(resolve(home)).digest('hex').slice(0, 16);
+      let configRevision: string | null = null;
+      if (config.network_id === networkId && config.runtime === 'codex-app-server' && resolved.codexHome === resolve(dir, 'codex-home')) {
+        try { configRevision = providerNodeRevision(dir); } catch { /* scan remains useful; mutation unavailable */ }
+      }
       return { ...base, status: 'observed', runtime: identifier(config.runtime), home_ref: homeRef,
         home_source: resolved.source === 'none' ? 'host_default' : resolved.source,
-        ...homeFacts(home), node_configured_model: identifier(config.model) };
+        ...homeFacts(home), node_configured_model: identifier(config.model), config_revision: configRevision };
     } catch { return { ...base, status: 'unavailable' }; }
   });
   return { observed_at: Date.now(), scope: 'hub_bound_nodes', rows };

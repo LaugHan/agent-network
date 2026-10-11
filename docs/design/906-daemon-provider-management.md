@@ -148,3 +148,23 @@ daemon 复用 runtime-readiness 的 PATH/--version 探针（1.5 秒），只返�
   不将回滚软件等同撤销已外泄供应商 key；后者需供应商侧撤销。
 - 数据：Git 只能重建实现，不能重建账号/key/用户配置。加密备份目的地、密钥保管、保留期尚未
   指定；未做生产恢复演练，不宣称全机可恢复。崩溃遗留锁需操作者核对写进程已终止后处理。
+
+### 单节点应用传输（首片接线中，尚未启用客户端按钮）
+
+`daemon_provider_snapshot` 的 `apply` 操作使用既有 daemon id、Provider revision，
+以及无密钥的 `provider={node_id,node_revision,provider_id,auth_id,model,confirm_restart:true}`。
+扫描对已确认 network 且独占本节点 codex-home 的配置返回可选 `config_revision`；
+缺失或 null 仍可展示，但不能作为写入依据。版本包括配置意图、TOML 和私有环境，
+排除启动端口/会话验证等观测字段，不对外输出原配置或凭据。
+
+Hub 在 `daemon_provider_applications` 保存无密钥选择，复用快照队列的单 daemon 单飞约束，
+请求使用 dpa_UUID、十分钟有效期；只有显式声明 `accept_applications` 的 daemon 才能领取。
+领取和成功回执再次验证当前节点归属。回执必须精确匹配节点、Provider、认证项、模型、
+运行时 Provider 标识和版本，不把配置快照视作运行中生效证明。
+read 将应用证据单独放在 `application`，不会伪装为 Provider 配置快照。
+完成/失败/过期清理请求选择，历史无密钥回执按既有七天策略保留。
+
+本段仅定义 Hub 协议及客户端请求构造；daemon 真实生命周期适配未完成前不声明应用能力。
+不新增服务、端口、密钥来源。建表由仓库 db.ts 负责；软件回滚保留表，旧 daemon 不领取
+应用请求。数据库来自既有加密备份；节点配置恢复仍依赖前述私有事务日志/加密备份，
+不能靠 clone 仓库重建身份或凭据，也不能将请求超时等同于节点已回滚。

@@ -544,6 +544,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS daemon_provider_writes (
   request_id TEXT PRIMARY KEY, expected_revision INTEGER NOT NULL,
   ciphertext BLOB NOT NULL, iv BLOB NOT NULL, tag BLOB NOT NULL
 )`);
+// Application intent is credential-free; secrets stay in the daemon's store.
+db.exec(`CREATE TABLE IF NOT EXISTS daemon_provider_applications (
+  request_id TEXT PRIMARY KEY, expected_revision INTEGER NOT NULL,
+  selection_json TEXT NOT NULL
+)`);
 
 // At most one row per node may be in a non-terminal state at a time
 // (single-flight enforced at the tool layer; this table just stores).

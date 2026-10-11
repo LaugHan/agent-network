@@ -6,6 +6,30 @@ import { execFileSync } from 'node:child_process';
 import { scanDaemonCodex } from './daemon-codex-inventory';
 import { validCodexInventory } from '../../server/src/shared/codex-inventory';
 
+test('scan carries an opaque node intent revision; startup observations do not invalidate it', () => {
+  const root = mkdtempSync(join(tmpdir(), 'codex-revision906-'));
+  try {
+    const nodes = join(root, '.anet/nodes'), dir = join(nodes, 'child');
+    mkdirSync(join(dir, 'codex-home'), { recursive: true, mode: 0o700 });
+    const config = { node_id: 'n_child', alias: 'child', runtime: 'codex-app-server', network_id: 'net_scan', model: 'old' };
+    const save = (value: any) => writeFileSync(join(dir, 'config.json'), JSON.stringify(value), { mode: 0o600 });
+    save(config);
+    writeFileSync(join(dir, 'codex-home/config.toml'), 'model="old"\n', { mode: 0o600 });
+    const scan = () => scanDaemonCodex(nodes, [{ node_id: 'n_child', alias: 'child' }], 'net_scan');
+    const first = scan();
+    expect(validCodexInventory(first)).toBe(true);
+    const revision = (first.rows[0] as any).config_revision;
+    expect(revision).toMatch(/^[a-f0-9]{64}$/);
+    save({ ...config, codexAppServerPort: 12345, codexRecoveryVerification: { phase: 'ready' } });
+    expect((scan().rows[0] as any).config_revision).toBe(revision);
+    writeFileSync(join(dir, '.env'), 'TEST_KEY=TEST-ONLY-new\n', { mode: 0o600 });
+    expect((scan().rows[0] as any).config_revision).not.toBe(revision);
+    expect(JSON.stringify(scan())).not.toContain('TEST-ONLY-new');
+    save({ ...config, network_id: undefined });
+    expect((scan().rows[0] as any).config_revision).toBeNull(); // legacy readable, mutation not proven safe
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 // The suite Dockerfile builds/pins the real CLI. Generic unit runners cannot
 // substitute an installed/global CLI for this integration evidence.
 test.skipIf(!process.env.ANET_BIN_ABS)('Codex scan core: real CLI finds bound existing config, excludes neighbours, emits no secret and writes nothing', () => {

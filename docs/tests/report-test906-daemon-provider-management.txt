@@ -185,3 +185,24 @@ Post-restack verification (2026-10-11T00:53Z):
   lifecycle wrapper, native client, official login, merge or release claimed.
   All spawned fixture Codex children stopped, fixture dirs removed, containers
   --rm. TEST-ONLY images retained; no production daemon or global package changed.
+
+2026-10-11 09:51 CST: application protocol and scan CAS, not lifecycle completion.
+  Base 52632a394abc414daa817e74d1847a9e460d9933 plus working tree.
+  Docker test-only image b8997b523ae188f89016a2f437cc9466de1cc45e77c7247d6f6e95b1adad0fcc,
+  current source read-only mounted; CLI rebuilt INSIDE disposable container.
+  --network none; no host credentials or production state mounted.
+  Inventory + Hub transport: 15/15 PASS, 126 assertions (4.07 seconds).
+  New protocol test uses a fixture application receipt, not a real restart.
+  Covers confirmation/secret-shape rejection, binding, old-daemon capability
+  isolation, exact receipt, lost ACK evidence retention and reassignment refusal.
+  Deterministic runtime-provider receipt guard added afterward: affected protocol
+  test alone rerun, 1/1 PASS, 19 assertions; not counted as a second full suite.
+  Audience regression 12/12 PASS, 304 assertions; bytes all80432/node62556/user57444.
+  Existing ceiling values unchanged in this increment.
+  Full server TypeScript check FAILED (not claimed clean): errors across several
+  files, plus a new flatMap inference error here. Fixed the new union inference;
+  repeated compiler output contains no daemon-provider/codex-inventory/provider-
+  application diagnostics. Filtered absence is NOT a clean full compiler result.
+  One initial compiler invocation used absent server-local tsc (exit127); corrected
+  to the existing agent-network compiler inside the same isolated image.
+  Containers --rm, private fixtures removed by tests; no native package/release.

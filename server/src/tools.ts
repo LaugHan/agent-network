@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { requestProviderSnapshot, requestProviderWrite, getProviderSnapshot, pullProviderSnapshots, ackProviderSnapshot } from "./daemon-provider-snapshots.js";
+import { requestProviderSnapshot, requestProviderWrite, requestProviderApplication, getProviderSnapshot, pullProviderSnapshots, ackProviderSnapshot } from "./daemon-provider-snapshots.js";
 import { requestAdopt, getAdopt, ackAdopt, unadopt, resolveManagedDaemon, activeBinding, createdDaemon } from "./node-daemon-bindings.js";
 import { runtimeReadinessSchema } from "./runtime-readiness.js";
 import { adoptionCandidatesReportSchema } from "./adoption-candidates.js";
@@ -4120,13 +4120,14 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
   const providerHuman = (net?: string) => ({ userId: enforceUserId, isNode: callerTokenIsNetwork, networkId: getNetworkId(net) });
   const providerReply = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value) }] });
   server.tool(
-    "daemon_provider_snapshot", "Admin daemon Provider config. refresh/put: id=daemon; read: id=request. put needs revision/provider; encrypted until delivered.",
-    { action: z.enum(["refresh", "read", "put"]), id: z.string().min(1).max(200), network_id: z.string().max(200).optional(), revision: z.number().int().min(0).optional(), provider: z.unknown().optional() },
+    "daemon_provider_snapshot", "Admin Provider config. refresh/put/apply: id=daemon; read: id=request. put: revision/provider; apply: revision/provider={node_id,node_revision,provider_id,auth_id,model,confirm_restart:true}.",
+    { action: z.enum(["refresh", "read", "put", "apply"]), id: z.string().min(1).max(200), network_id: z.string().max(200).optional(), revision: z.number().int().min(0).optional(), provider: z.unknown().optional() },
     async ({ action, id, network_id, revision, provider }) => {
       const human = providerHuman(network_id);
       if (action === "read") return providerReply(getProviderSnapshot(human, id));
       const daemon_node_id = id;
-      const result = action === 'put' ? requestProviderWrite(human, daemon_node_id, revision!, provider) : requestProviderSnapshot(human, daemon_node_id);
+      const result = action === 'apply' ? requestProviderApplication(human, daemon_node_id, revision!, provider)
+        : action === 'put' ? requestProviderWrite(human, daemon_node_id, revision!, provider) : requestProviderSnapshot(human, daemon_node_id);
       if (result.ok) {
         const target = db.get<{ alias: string }>("SELECT alias FROM nodes WHERE node_id=?1 AND network_id=?2", daemon_node_id, human.networkId!);
         if (target) pushEvent(target.alias, { type: "daemon_provider_snapshot", request_id: result.request_id }, human.networkId!);
@@ -4135,13 +4136,13 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
     },
   );
   server.tool(
-    "pull_daemon_provider_snapshots", "Daemon pulls Provider work; accept_writes requires secure transport and write support.", { accept_writes: z.boolean().optional() },
-    async ({ accept_writes }) => providerReply(pullProviderSnapshots(resolveCallerDaemonTokenBound(), accept_writes)),
+    "pull_daemon_provider_snapshots", "Daemon Provider work; advertise only implemented secure write/apply capabilities.", { accept_writes: z.boolean().optional(), accept_applications: z.boolean().optional() },
+    async ({ accept_writes, accept_applications }) => providerReply(pullProviderSnapshots(resolveCallerDaemonTokenBound(), accept_writes, accept_applications)),
   );
   server.tool(
     "ack_daemon_provider_snapshot", "Target daemon acknowledges redacted Provider configuration readback; fixed failure code only.",
-    { request_id: z.string().min(1).max(200), snapshot: z.unknown().optional(), failed: z.boolean().optional(), applied_revision: z.number().int().min(0).optional() },
-    async ({ request_id, snapshot, failed, applied_revision }) => providerReply(ackProviderSnapshot(resolveCallerDaemonTokenBound(), request_id, snapshot, failed, applied_revision)),
+    { request_id: z.string().min(1).max(200), snapshot: z.unknown().optional(), failed: z.boolean().optional(), applied_revision: z.number().int().min(0).optional(), application: z.unknown().optional() },
+    async ({ request_id, snapshot, failed, applied_revision, application }) => providerReply(ackProviderSnapshot(resolveCallerDaemonTokenBound(), request_id, snapshot, failed, applied_revision, application)),
   );
 
   // Helper — map a ValidationError thrown from create-node-validate
