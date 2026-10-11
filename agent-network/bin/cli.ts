@@ -1180,7 +1180,7 @@ async function startWindowsCodexCopresence(
     console.log(`[anet] Codex thread recovery deadline: ${resumeBudget.timeoutMs}ms (${formatCopresenceRolloutSize(resumeBudget.rolloutBytes)})`);
     recoveryAdmission = await holdCodexRecovery(resolved.id, resumeBudget.rolloutBytes);
     const thread = await resumeOrForkOnMissingOrdinal(
-      (forkFirst) => createCodexCopresenceThread(wsUrl, resumeBudget.timeoutMs, requestedThreadId, model, { rolloutBytes: resumeBudget.rolloutBytes, forkFirst }),
+      (forkFirst) => createCodexCopresenceThread(wsUrl, resumeBudget.timeoutMs, requestedThreadId, model, { rolloutBytes: resumeBudget.rolloutBytes, forkFirst, modelProvider: resolved.profile.codexModelProvider }),
       forkRecoveryOptions(resolved.id, displayName, opts, requestedThreadId),
     );
     reportResumedCodexModel(model, thread.resumedModel);
@@ -1987,7 +1987,7 @@ async function startCopresenceOrchestration(nodeId: string, opts: CopresenceOpti
     console.log(`[anet] Codex thread recovery deadline: ${resumeBudget.timeoutMs}ms (${formatCopresenceRolloutSize(resumeBudget.rolloutBytes)})`);
     recoveryAdmission.hold(await holdCodexRecovery(nodeId, resumeBudget.rolloutBytes));
     const thread = await resumeOrForkOnMissingOrdinal(
-      (forkFirst) => createCodexCopresenceThread(wsUrl, resumeBudget.timeoutMs, requestedThreadId, model, { rolloutBytes: resumeBudget.rolloutBytes, forkFirst }),
+      (forkFirst) => createCodexCopresenceThread(wsUrl, resumeBudget.timeoutMs, requestedThreadId, model, { rolloutBytes: resumeBudget.rolloutBytes, forkFirst, modelProvider: profile.codexModelProvider }),
       forkRecoveryOptions(resolved.id, displayName, opts, requestedThreadId),
     );
     reportResumedCodexModel(model, thread.resumedModel);
@@ -2743,6 +2743,7 @@ interface Profile {
   codexRuntime?: string;
   codexAppServerUrl?: string;  // RFC-030 — shared codex app-server URL (co-presence)
   codexThreadId?: string;      // RFC-030 — codex thread to adopt
+  codexModelProvider?: string; // #906 explicit provider when resuming an existing thread
   codexRecoveryVerification?: CodexRecoveryVerification;
   codexRecoveryBackup?: { createdAt: string; stateFiles: string[]; path: string };
   // Remembered so `anet node start <name>` alone brings up the co-presence

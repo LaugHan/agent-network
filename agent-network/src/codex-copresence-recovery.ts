@@ -10,6 +10,9 @@ export interface CodexRecoveryVerification {
   historyFingerprint: string;
   /** Metadata-only thread/read proof that Codex resolved this exact rollout. */
   persistedPath?: string;
+  /** Present only when an explicitly selected Provider was read back from the runtime. */
+  modelProvider?: string;
+  model?: string;
 }
 
 export interface CodexRecoveryBackup {
@@ -138,9 +141,14 @@ export async function resumeAndVerifyCodexThread(
   threadId: string,
   request: (method: string, params: Record<string, unknown>) => Promise<unknown>,
   model?: string,
+  modelProvider?: string,
 ): Promise<CodexRecoveryVerification & { resumedModel?: string }> {
   const params: Record<string, unknown> = { threadId, excludeTurns: true };
   if (typeof model === "string" && model.trim()) params.model = model.trim();
+  if (modelProvider !== undefined) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(modelProvider)) throw new Error('invalid Codex model provider');
+    params.modelProvider = modelProvider;
+  }
   let resumed: unknown;
   try {
     resumed = await request("thread/resume", params);
@@ -156,6 +164,15 @@ export async function resumeAndVerifyCodexThread(
   const read = await request("thread/read", { threadId, includeTurns: false });
   const verification = verifyCodexThreadHistory("thread/resume", threadId, read);
   const resumedModel = (resumed as { model?: unknown } | null)?.model;
+  if (modelProvider !== undefined) {
+    // Installed Codex 0.159.2 ThreadResumeResponse exposes the effective
+    // provider/model at top level. A catalog or config-file read is not enough.
+    if ((resumed as any)?.modelProvider !== modelProvider || resumedModel !== params.model) {
+      throw new Error('Codex resumed provider/model does not match the selected configuration');
+    }
+    verification.modelProvider = modelProvider;
+    verification.model = resumedModel as string;
+  }
   return typeof resumedModel === "string" ? { ...verification, resumedModel } : verification;
 }
 

@@ -143,3 +143,45 @@ Post-restack verification (2026-10-11T00:53Z):
   No model invocation, account switch, node restart, native install or release.
   Existing unadopted Codex/process state/profile catalog remain explicit gaps.
   Fixture directories cleaned, containers --rm, TEST-ONLY image retained.
+
+2026-10-11 09:40 CST: node configuration transaction core, NOT runtime integration.
+  Base 14a8ec2bd628ce98bc1e1778d531e39883a6307d plus working-tree increment.
+  Added private API-key lease and node scoped stop/write/activation/rollback core.
+  Docker image anet-provider:test906-apply-core manifest list:
+    a1aa2da4b453e638831af830bca013efd38d18ba618d5f6193b6e9a1b1f26970
+  Command: sg docker -c 'docker run --rm --network none anet-provider:test906-apply-core'
+  Layers: store 17/17; private filesystem 8/8; new transaction 5/5 (42 assertions).
+  Actual private fixture files exercised; lifecycle is INJECTED, NOT real Codex:
+    exact selection + login file unchanged + secret absent from receipt;
+    wrong-model activation restores exact prior bytes;
+    wrong identity/revision/model stops before mutation;
+    uncertain stop retains recovery journal and refuses replay;
+    external edit prevents unsafe rollback overwrite.
+  This does NOT prove node application, model request, official account switch,
+  native package acceptance, merge or release. No CLI/Hub application is wired.
+  Containers --rm; test-owned directories cleaned by afterEach; image retained.
+
+2026-10-11 09:44 CST: real installed Codex provider resume contract.
+  Added codexModelProvider to managed node config, both launchers pass it to
+  thread/resume; exact returned provider/model mismatch now fails the selected
+  provider path. Old nodes without the field retain existing recovery behavior.
+  Source/docs: https://learn.chatgpt.com/docs/app-server (configuration override
+  and config/read is on-disk effective config, not inference entitlement).
+  Actual pinned Codex 0.159.2 generated ThreadResumeParams/Response schemas
+  confirm modelProvider and model fields. One exploratory schema command also
+  tried a nonexistent standalone Thread.json and exited 1; no test assertion
+  relaxed. Contract probe below passed against actual binary responses.
+  Native contract image manifest list:
+    6e39c74bd36ff8242042f6c5fa8b4d5dbc5c962aea43c2c86bf8ef4e2574f9a6
+  Ran Docker --rm --network none with current agent-network/src and test906 dir
+  read-only mounted into /work. Native Codex creates one thread, completes a
+  local synthetic Responses turn, restarts, resumes through the production
+  helper, then completes a second synthetic turn. Exact endpoint, API-key and
+  model of both requests checked; modified wrong-provider receipt refused.
+  Result PASS; two synthetic turns, zero external inference/account usage.
+  Core replay on current source: transaction 7/7 (48 assertions), including
+  launch metadata changes and lost ACK idempotency; RPC regressions 8/8.
+  CLI bundling PASS; full CLI TypeScript PASS. No Hub-to-daemon application,
+  lifecycle wrapper, native client, official login, merge or release claimed.
+  All spawned fixture Codex children stopped, fixture dirs removed, containers
+  --rm. TEST-ONLY images retained; no production daemon or global package changed.

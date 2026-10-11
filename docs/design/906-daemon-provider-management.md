@@ -88,6 +88,32 @@ application=not_applied；模型清单是用户配置，不是 entitlement 或�
 
 ## 恢复六问
 
+### 节点应用事务核心（未接入远程 apply）
+
+`agent-network/src/daemon-provider-application.ts` 是正在接线的内部模块，不是可用的
+CLI/MCP 应用入口。它要求受信本地节点目录、网络/daemon/node/alias 一致、节点配置
+hash 与 Provider revision 双重比较；只选择启用的 codex-tui API Key 配置及其模型。
+首个写入路径只允许节点自己的 codex-home，不修改别的登录源、auth.json 或共享 home。
+目标停机、启动及真实生效回读由生命周期适配器提供，不能用写文件成功代替这些动作。
+
+停止前保存 0600 `provider-application.json` 私有恢复日志（包含原私有配置，不能上报
+Hub 或作为普通日志上传）；Provider store 持锁避免选择后被修改。错误生效回读触发
+精确原配置恢复及旧运行态恢复。停止无法确认、回滚失败或检测到外部修改时保留日志并
+报告 recovery_required，不覆盖外部编辑，也不自动抢锁/重试。当前尚无恢复 CLI；恢复
+操作者须先核对目标属主进程已停、审查日志与当前配置差异，再恢复对应私有文件并启动
+原版本，不能仅删除日志假装成功。完成状态另存不含密钥的私有回执；同请求同参数及
+同配置版本重放只返回原回执，不重复重启。真实生命周期/远程接线仍待补齐。
+
+应用同时写入节点的 `codexModelProvider`。POSIX/Windows 共存启动器恢复已有会话时
+把它显式传到 `thread/resume.modelProvider`，要求返回的 Provider 与模型完全相同；
+无此配置字段的旧节点继续原行为。版本指纹忽略启动器生成的端口/恢复观察信息，但
+继续覆盖节点身份、线程、权限、模型和环境配置。实际模型调用能力仍须单独验证；
+不能把会话恢复回读当作供应商认证成功或可用模型目录证明。
+
+不新增服务、端口或反代；密钥仍来自本 daemon 私有 store。模块尚未接线，因此本次
+不部署生产；未来换版仍按精确 main SHA 发布并核对运行态。软件回滚不能撤销已应用
+配置；私有日志和 provider-store 必须纳入加密备份，Git 不含这些数据或凭据。
+
 ### 既有 Codex 只读扫描（首版增量）
 
 `provider scan <daemon>` 从 stdin 接收 Hub 根据当前网络创建记录与 active bindings

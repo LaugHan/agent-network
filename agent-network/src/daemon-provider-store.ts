@@ -152,6 +152,27 @@ export class DaemonProviderStore {
         })) })) })) };
   }
   list() { return this.publicState(this.read()); }
+  /** Local application lease. Secrets stay inside the daemon callback, never in list/scan. */
+  async withApiKey<T>(selection: { revision: number; providerId: string; authId: string; model: string },
+    apply: (profile: { providerId: string; authId: string; model: string; baseUrl: string; key: string }) => Promise<T>): Promise<T> {
+    if (!Number.isSafeInteger(selection.revision) || selection.revision < 0) fail('invalid_revision');
+    if (!existsSync(this.root)) fail('provider_not_found');
+    this.checkRoot();
+    const lock = join(this.root, 'write.lock');
+    let fd: number;
+    try { fd = openSync(lock, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600); }
+    catch { fail('provider_store_busy'); }
+    try {
+      const state = this.read();
+      if (state.revision !== selection.revision) fail('revision_conflict');
+      const provider = state.providers.find(p => p.id === selection.providerId);
+      if (!provider?.enabled) fail('provider_not_enabled');
+      const auth = provider.runtimes.find(r => r.runtime === 'codex-tui')?.auth.find(a => a.id === selection.authId);
+      if (!auth || auth.kind !== 'api_key' || !auth.key || !auth.baseUrl) fail('api_key_profile_required');
+      if (!auth.models.includes(selection.model)) fail('model_not_configured');
+      return await apply({ providerId: provider.id, authId: auth.id, model: selection.model, baseUrl: auth.baseUrl, key: auth.key });
+    } finally { closeSync(fd); unlinkSync(lock); }
+  }
   upsert(value: unknown, expectedRevision: number, requestId?: string) {
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) fail("invalid_revision");
     if (requestId !== undefined && !/^dps_[a-f0-9-]{36}$/.test(requestId)) fail('invalid_request');

@@ -44,7 +44,7 @@ export async function createCodexCopresenceThread(
   resumeThreadId?: string,
   model?: string,
   /** forkFirst (board #738): `thread/fork` the recorded thread, then resume the NEW thread. */
-  options: { webSocketCtor?: any; rolloutBytes?: number | null; forkFirst?: boolean } = {},
+  options: { webSocketCtor?: any; rolloutBytes?: number | null; forkFirst?: boolean; modelProvider?: string } = {},
 ): Promise<{ threadId: string; verification?: CodexRecoveryVerification; freshDeferred: boolean; resumedModel?: string }> {
   const maxPayload = resolveCopresenceMaxPayloadBytes(options.rolloutBytes ?? null);
   const WsCtor = options.webSocketCtor ?? await defaultWebSocketCtor(maxPayload);
@@ -126,6 +126,7 @@ export async function createCodexCopresenceThread(
       resumeId,
       (method, params) => request(method, params, Math.max(1, deadline - Date.now())),
       model,
+      options.modelProvider,
     );
     return { threadId: resumeId, verification, freshDeferred: false, resumedModel };
   } finally {
