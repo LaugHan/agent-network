@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { scanDaemonCodex } from './daemon-codex-inventory';
-import { validCodexInventory } from '../../server/src/shared/codex-inventory';
+// test745 copies agent-node/src and not server/. The two modules are the same public contract.
+import { validCodexInventory } from '../../agent-node/src/shared/codex-inventory';
 
 test('scan carries an opaque node intent revision; startup observations do not invalidate it', () => {
   const root = mkdtempSync(join(tmpdir(), 'codex-revision906-'));
