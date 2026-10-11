@@ -202,7 +202,14 @@ describe("bytes per role (#476 ceilings stay meaningful per role)", () => {
   // node 61 / 62,433 B → 62,946 B (+513); user 58 / 57,228 B unchanged
   // (report_status is not on the user list). Budget only this measured addition
   // (~154/509 B node/all margin).
-  const CEILINGS = { node: 63_100, user: 57_500, all: 80_100 } as const;
+  // #906 registers daemon_provider_snapshot (user) plus pull/ack (protocol; omitted
+  // from the default node and user lists). Measured on this tree after the
+  // description trims already in the change: all 90 / 80,307 B; node 61 / 62,556 B;
+  // user 59 / 57,372 B. Node stays under 63,100 (544 B) and user under 57,500 (128 B).
+  // `all` is 207 B over 80,100. The two protocol descriptions are 179 B together, so
+  // shortening them cannot pay for their schemas. Raise only `all` to 80,800
+  // (493 B margin, same order as the previous all margin).
+  const CEILINGS = { node: 63_100, user: 57_500, all: 80_800 } as const;
   test("node / user / all", async () => {
     const node = await listTools(T.node_normal);
     const user = await listTools(T.owner);
