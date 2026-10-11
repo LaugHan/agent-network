@@ -274,7 +274,7 @@ Post-restack verification (2026-10-11T00:53Z):
   removed. TEST-ONLY images retained. No production/global packages touched.
   Not merged, publicly released or installed on the user's daemon yet.
 
-2026-10-11 10:24 CST: release-pair preparation (not publication).
+2026-10-11 10:18-10:19 CST: release-pair preparation (not publication).
   Base 968d613763e36cd4f03cfc496d26e36666b80f1e plus version-only preparation:
   CLI .163, runtime .129, Hub .121; package locks, exact runtime pair and the
   test-only resolver shim agree. Existing published Hub startup floor unchanged
