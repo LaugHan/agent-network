@@ -96,3 +96,15 @@ client management page wiring, actual model invocation, installed native client
 acceptance or release. New protocol transports redacted configuration only.
 No production request/account/daemon/install changes. Test containers --rm,
 fixture dirs deleted, additional transport/guards images retained for diagnosis.
+
+Post-restack verification (2026-10-11T00:53Z):
+  Replayed only this increment onto remote 1582f31820d333e729b837eed85f885da399b111,
+  preserving the other writer's main catalog merge and CI/doc fixes (no force push).
+  Tested source: 59903598afc8896f7582bad8d576783637e81872.
+  Fresh transport image manifest:
+  sha256:3e93cec09a805cd4e1bf6078355c969ea810fff3ba10508cf9571308df09c188
+  Node 22 real reader PASS; Hub suite 11/0 (68 expects); HTTP compatibility
+  12/0 (304 expects); same byte totals and unchanged ceilings; exit 0.
+  Private storage regressions on current mounted source: 17/0 + 8/0.
+  Trigger guard: 102 CI-executed directories covered; doc pin coverage remains
+  explicitly partial as above. No runtime/secret/account application tested.
