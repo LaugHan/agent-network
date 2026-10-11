@@ -206,3 +206,24 @@ Post-restack verification (2026-10-11T00:53Z):
   One initial compiler invocation used absent server-local tsc (exit127); corrected
   to the existing agent-network compiler inside the same isolated image.
   Containers --rm, private fixtures removed by tests; no native package/release.
+
+2026-10-11 10:00 CST: CLI lifecycle and daemon application wiring (TEST-ONLY).
+  Base 0ea460ebf7b15e1b266a8ff728c60e91a57d8345 plus this working tree.
+  Core Docker --rm --network none, current src readonly-mounted:
+    transaction + command + login gate 12/12 PASS, 105 assertions.
+  Command test uses real local HTTP MCP preflight and private files, but injects
+  lifecycle subprocess outputs; NOT native-process acceptance. Covers one-node
+  argv, no host-login inheritance, exact model/provider readback, busy refusal,
+  lost ACK no restart, explicit original-provider restoration on wrong model.
+  Custom env_key gate checks selected credential presence without returning it;
+  a key merely being present does not establish authentication or inference.
+  Cached transport image, rebuilt current CLI and agent-node inside container:
+    CLI bundle PASS, full CLI TypeScript PASS, agent-node build PASS.
+    Hub transport 13/13 PASS, 108 assertions; existing real HTTP private-store
+    write path remains intact. Application receipt in that test is synthetic.
+  Test command also named a nonexistent node test path; Bun ran the one existing
+  server test file only. No separate node test-suite pass is claimed.
+  Real full application lifecycle with native Codex remains pending; not merged
+  or released. Existing full server TypeScript failure above remains open.
+  Containers --rm, fixtures cleaned by tests, test-only images retained.
+  No real credentials, global install, production daemon or production DB used.

@@ -1,8 +1,10 @@
-// #906: read-only Provider inventory. Never accepts a remote path or command.
+// #906: scoped Provider inventory, writes and single-node application.
+// Never accepts a remote path or command.
 import { execFile } from "node:child_process";
 import { getAnetBinAbs, minimalEnv } from "./create-node-daemon.js";
 import { validateDaemonProviderSnapshot } from "../shared/daemon-provider-snapshot.js";
 import { requiredCliStatus, resolveOnPathReal, execVersionReal } from './runtime-readiness.js';
+import { validProviderApplicationSelection, validProviderApplicationReceipt } from '../shared/provider-application.js';
 
 export type SnapshotDeps = {
   callCommHub: (name: string, args: Record<string, unknown>) => Promise<any>;
@@ -15,6 +17,25 @@ export function secureProviderTransport(value?: string): boolean {
   try { const u = new URL(value || ''); return !u.username && !u.password &&
     (u.protocol === 'https:' || (u.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname))); }
   catch { return false; }
+}
+export async function applyLocalProvider(deps: Pick<SnapshotDeps, 'workDir' | 'alias' | 'networkId' | 'daemonId'>, request: any) {
+  await readLocalProviderSnapshot(deps); // pin daemon scope before accessing local state
+  if (!/^dpa_[a-f0-9-]{36}$/.test(request.request_id) || !validProviderApplicationSelection(request.selection)
+    || !Number.isSafeInteger(request.expected_revision) || request.expected_revision < 0
+    || typeof request.alias !== 'string' || !/^[\p{L}\p{N}][\p{L}\p{N}_.-]{0,99}$/u.test(request.alias)) throw new Error('invalid_application');
+  const input = JSON.stringify({ request_id: request.request_id, expected_revision: request.expected_revision,
+    selection: request.selection, alias: request.alias, network_id: deps.networkId, daemon_node_id: deps.daemonId });
+  const raw = await new Promise<string>((resolve, reject) => {
+    const child = execFile(process.execPath, [getAnetBinAbs(), 'daemon', 'provider', 'apply', deps.alias],
+      { cwd: deps.workDir, env: minimalEnv(), timeout: 540_000, maxBuffer: 1024 * 1024, encoding: 'utf8', windowsHide: true },
+      (error, stdout) => error ? reject(new Error('provider_application_unavailable')) : resolve(stdout));
+    child.stdin?.on('error', () => reject(new Error('provider_application_unavailable')));
+    child.stdin?.end(input);
+  });
+  const result = JSON.parse(raw);
+  if (result.ok !== true || !validProviderApplicationReceipt(result.application, request.request_id,
+    request.expected_revision, request.selection)) throw new Error('invalid_application_receipt');
+  return result.application;
 }
 export async function writeLocalProvider(deps: Pick<SnapshotDeps, 'workDir' | 'alias' | 'networkId' | 'daemonId'>,
   request: { request_id: string; expected_revision: number; provider: unknown }) {
@@ -69,14 +90,18 @@ export function reconcileProviderSnapshots(deps: SnapshotDeps): Promise<void> {
     do {
       state.again = false;
       const acceptWrites = secureProviderTransport(deps.serverUrl);
-      const pending = await deps.callCommHub("pull_daemon_provider_snapshots", acceptWrites ? { accept_writes: true } : {});
+      const pending = await deps.callCommHub("pull_daemon_provider_snapshots", acceptWrites ? { accept_writes: true, accept_applications: true } : {});
       if (!pending?.ok || !Array.isArray(pending.requests)) return; // old Hub capability: unsupported is not success
       for (const request of pending.requests.slice(0, 20)) {
-        if (typeof request?.request_id !== "string" || !/^dps_[a-f0-9-]{36}$/.test(request.request_id)
+        if (typeof request?.request_id !== "string" || !/^dp[sa]_[a-f0-9-]{36}$/.test(request.request_id)
           || !Number.isSafeInteger(request.expires_at) || request.expires_at <= Date.now()) continue;
         let snapshot: unknown;
+        let application: unknown;
         try {
-          if (request.operation === 'put') {
+          if (request.operation === 'apply') {
+            if (!acceptWrites) throw new Error('insecure_transport');
+            application = await applyLocalProvider(deps, request);
+          } else if (request.operation === 'put') {
             if (!acceptWrites) throw new Error('insecure_transport');
             snapshot = await writeLocalProvider(deps, request);
           } else {
@@ -88,7 +113,8 @@ export function reconcileProviderSnapshots(deps: SnapshotDeps): Promise<void> {
           await deps.callCommHub("ack_daemon_provider_snapshot", { request_id: request.request_id, failed: true });
           continue;
         }
-        await deps.callCommHub("ack_daemon_provider_snapshot", { request_id: request.request_id, snapshot,
+        await deps.callCommHub("ack_daemon_provider_snapshot", { request_id: request.request_id,
+          ...(application ? { application } : { snapshot }),
           ...(request.operation === 'put' ? { applied_revision: request.expected_revision + 1 } : {}) });
       }
     } while (state.again);

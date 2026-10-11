@@ -49,6 +49,12 @@ function filesRevision(files: Files, nodeDir: string) {
   return digest({ ...files, 'config.json': configIntent(files['config.json'], nodeDir) });
 }
 export function providerNodeRevision(nodeDir: string): string { return filesRevision(currentFiles(nodeDir), nodeDir); }
+export function readProviderNodeConfig(nodeDir: string): Record<string, any> {
+  return JSON.parse(privateText(join(nodeDir, 'config.json')) ?? '{}');
+}
+export function readProviderNodeToml(nodeDir: string) {
+  return parse(privateText(join(nodeDir, 'codex-home/config.toml')) ?? '');
+}
 
 export type ProviderApplicationRequest = {
   requestId: string; networkId: string; daemonId: string; nodeId: string; alias: string;
@@ -57,6 +63,8 @@ export type ProviderApplicationRequest = {
 };
 export type ProviderActivation = { nodeId: string; model: string; runtimeProvider: string; nodeRevision: string };
 export type ProviderApplicationLifecycle = {
+  // Read-only checks before a recovery journal is created; no partial stop.
+  preflight?: () => Promise<void>;
   // Must drain/refuse busy work, stop only this node and verify process exit.
   stopVerified: () => Promise<void>;
   // Must launch using the staged profile and check actual runtime evidence.
@@ -123,6 +131,8 @@ export async function applyDaemonProvider(nodeDir: string, store: DaemonProvider
         || provider.http_headers || provider.env_http_headers) fail('incompatible_provider_override');
       const after: Files = { 'config.json': JSON.stringify(nextConfig, null, 2) + '\n', '.env': nextEnv, 'codex-home/config.toml': nextToml };
       const expected = { nodeId: request.nodeId, model: selected.model, runtimeProvider, nodeRevision: filesRevision(after, nodeDir) };
+      await lifecycle.preflight?.();
+      if (providerNodeRevision(nodeDir) !== request.nodeRevision) fail('node_revision_conflict');
       // Journal includes prior private bytes for recovery, never a public receipt.
       atomicWritePrivateJson(journal, { schema: 1, request_id: request.requestId, node_id: request.nodeId,
         network_id: request.networkId, daemon_node_id: request.daemonId, before, after_revision: expected.nodeRevision });

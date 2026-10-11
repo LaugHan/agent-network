@@ -149,7 +149,7 @@ daemon 复用 runtime-readiness 的 PATH/--version 探针（1.5 秒），只返�
 - 数据：Git 只能重建实现，不能重建账号/key/用户配置。加密备份目的地、密钥保管、保留期尚未
   指定；未做生产恢复演练，不宣称全机可恢复。崩溃遗留锁需操作者核对写进程已终止后处理。
 
-### 单节点应用传输（首片接线中，尚未启用客户端按钮）
+### 单节点应用传输（测试分支已接线，尚未正式发布）
 
 `daemon_provider_snapshot` 的 `apply` 操作使用既有 daemon id、Provider revision，
 以及无密钥的 `provider={node_id,node_revision,provider_id,auth_id,model,confirm_restart:true}`。
@@ -164,7 +164,19 @@ Hub 在 `daemon_provider_applications` 保存无密钥选择，复用快照队�
 read 将应用证据单独放在 `application`，不会伪装为 Provider 配置快照。
 完成/失败/过期清理请求选择，历史无密钥回执按既有七天策略保留。
 
-本段仅定义 Hub 协议及客户端请求构造；daemon 真实生命周期适配未完成前不声明应用能力。
+客户端使用独立确认界面，提交一次后轮询精确请求回执；离开页面只停止观察，不取消远端操作。
+daemon 通过已固定的 CLI 入口执行 `daemon provider apply <daemon>`，选择通过 stdin 传递，
+不接受 Hub 给出的路径或任意命令。CLI 从本地受信注册表解析目标，并再次验证 Hub 待处理请求、
+归属及最新 idle/空队列状态（这不是原子排空租约，仍需真实链路验证）。
+现有单节点 stop/start/verify 生命周期负责进程归属；只操作目标节点且不复制宿主 auth.json。
+启动必须回读同一 thread/resume 的实际 Provider、模型与节点版本；失败恢复显式传入原 Provider
+和模型，不能仅恢复文件后假定会话已还原。恢复不确定保留私有 journal 并禁止盲目重试。
+应用选择需要已知原模型；不支持的节点布局、共享 home 或缺失版本会拒绝。
+
+自定义认证使用选定 Provider 的 env_key 与已解析节点环境，不将 key 存在称为登录/推理成功。
+语义依据：https://learn.chatgpt.com/docs/config-file/config-reference 与
+https://learn.chatgpt.com/docs/app-server；实际二进制契约另见 test906 native-provider-probe。
+当前分层证据不等于真实 Hub→daemon→CLI→原生 Codex 整链验收，发布前仍需完成该核心验证。
 不新增服务、端口、密钥来源。建表由仓库 db.ts 负责；软件回滚保留表，旧 daemon 不领取
 应用请求。数据库来自既有加密备份；节点配置恢复仍依赖前述私有事务日志/加密备份，
 不能靠 clone 仓库重建身份或凭据，也不能将请求超时等同于节点已回滚。

@@ -3,7 +3,7 @@ import { readSync } from "node:fs";
 import { DaemonProviderError, DaemonProviderStore } from "./daemon-provider-store";
 import { scanDaemonCodex } from './daemon-codex-inventory';
 
-export const DAEMON_PROVIDER_USAGE = "anet daemon provider <list|scan|put> <daemon> [--revision N] [--request dps_UUID] (put/scan read private JSON from stdin; no key in argv)";
+export const DAEMON_PROVIDER_USAGE = "anet daemon provider <list|scan|put|apply> <daemon> [--revision N] [--request dps_UUID] (put/scan/apply read private JSON from stdin; no key in argv)";
 export function readProviderInput(fd = 0): string {
   const chunks: Buffer[] = [];
   let total = 0;

@@ -26,6 +26,7 @@
  */
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { parse } from "smol-toml";
 import { codexLoginFactsOfHome, codexLoginNextStepLines } from "./codex-node-login";
 
 export type CodexHomeLoginState = "logged-in" | "needs-login" | "unknown";
@@ -44,6 +45,18 @@ export function codexHomeLoginState(codexHome: string, env: Record<string, strin
   if (facts.loggedIn) return { state: "logged-in", reason: `auth.json has a ${facts.kind === "api-key" ? "API key" : "ChatGPT login"}` };
   let configToml: string | null = null;
   try { configToml = readFileSync(join(codexHome, "config.toml"), "utf-8"); } catch { configToml = null; }
+  // A custom provider's env_key is authentication too; it is not a ChatGPT
+  // login. Only inspect the selected provider and never return the secret.
+  try {
+    const config: any = parse(configToml ?? '');
+    const profile = typeof config.profile === 'string' ? config.profiles?.[config.profile] : undefined;
+    const selected = profile?.model_provider ?? config.model_provider ?? 'openai';
+    const provider = config.model_providers?.[selected];
+    if (provider?.requires_openai_auth !== true && typeof provider?.env_key === 'string'
+      && /^[A-Za-z_][A-Za-z0-9_]*$/.test(provider.env_key) && nonEmpty(env[provider.env_key])) {
+      return { state: 'unknown', reason: 'selected provider API key is set in the environment; not checked' };
+    }
+  } catch { /* Malformed TOML is not evidence of authentication. */ }
   const store = configToml?.match(/^\s*cli_auth_credentials_store\s*=\s*["']?([A-Za-z]+)["']?/m)?.[1]?.toLowerCase();
   if (store === "keyring" || store === "auto") {
     return { state: "unknown", reason: `config.toml keeps credentials in the OS keyring (cli_auth_credentials_store = "${store}"); not checked` };
