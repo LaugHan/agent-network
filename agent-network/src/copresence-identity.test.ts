@@ -1189,9 +1189,9 @@ describe("Blocker 4: readMarker checks MISSING before PLATFORM_UNSUPPORTED", () 
     }
   });
 
-  test("non-Linux + marker file present → PLATFORM_UNSUPPORTED (we genuinely cannot act on it)", () => {
+  test("unsupported platform + marker file present → PLATFORM_UNSUPPORTED", () => {
     writeMarker(tmpNodesDir, "node-with-marker", "some-uuid", {});
-    for (const platform of ["darwin", "win32"]) {
+    for (const platform of ["freebsd", "win32"]) {
       const r = withPlatform(platform, () => readMarker(tmpNodesDir, "node-with-marker"));
       expect(r.kind).toBe("refuse");
       if (r.kind === "refuse") expect(r.cause).toBe("PLATFORM_UNSUPPORTED");

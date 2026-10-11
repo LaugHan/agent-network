@@ -248,8 +248,17 @@ describe("CodexAppServerBridge — bootstrap + task mapping", () => {
   test("a managed TUI wait terminates if its app-server disconnects", async () => {
     const app2 = await startFakeApp(); const client2 = new CodexAppServerClient({ url: app2.url }); await client2.connect();
     const bridge2 = new CodexAppServerBridge({ client: client2, deferThreadUntilTui: true, waitForFirstTuiMessage: true });
-    const boot = bridge2.bootstrap(); const rejected = expect(boot).rejects.toThrow("closed before its TUI thread");
-    await Bun.sleep(10); await client2.close(); await rejected; await app2.stop();
+    const waiting = new Promise<void>(resolve => bridge2.once("thread_waiting", () => resolve()));
+    const boot = bridge2.bootstrap().then(() => null, error => error);
+    try {
+      await waiting;
+      await client2.close();
+      const error = await boot;
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toContain("closed before its TUI thread");
+    } finally {
+      await client2.close(); await app2.stop();
+    }
   });
 
   test("deferred binding rejects two distinct user-owned thread identities", async () => {
