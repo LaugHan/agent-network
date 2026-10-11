@@ -101,6 +101,8 @@ describe("#512 launcher wiring (source)", () => {
       expect(c).toContain(", model,");
       expect(c).toContain("rolloutBytes: resumeBudget.rolloutBytes");
     }
-    expect(rpc).toMatch(/resumeAndVerifyCodexThread\([\s\S]*?\bmodel,\s*(?:options\.modelProvider,\s*)?\)/);
+    // The resolved model is still the thread/resume argument. The provider
+    // id follows it; the call no longer ends at `model)`.
+    expect(rpc).toMatch(/resumeAndVerifyCodexThread\([\s\S]*?\bmodel,\s*options\.modelProvider,\s*\)/);
   });
 });

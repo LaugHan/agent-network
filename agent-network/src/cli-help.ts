@@ -429,11 +429,13 @@ init + start in one step (default name: "daemon").`,
        anet daemon ls
 
 List locally configured daemon nodes (configuration only, not liveness).`,
+  // Same command line as DAEMON_PROVIDER_USAGE. --help must name this path;
+  // the daemon group printer only says "provider list" / "provider put".
   "daemon provider": `Usage: anet daemon provider <list|scan|put|apply> <daemon> [--revision N] [--request dps_UUID]
 
-list reads daemon-scoped Provider configuration (no secrets).
-scan, put, and apply read private JSON from stdin; no key is accepted in argv.
-put saves that JSON and does not apply it to a runtime.`,
+list reads daemon-scoped Provider configuration and prints no secrets.
+scan, put, and apply read private JSON from stdin. put saves it and does not
+apply it to a node. No key is accepted in argv.`,
 
   // ── network ──
   "network ls": `Usage: anet network ls
