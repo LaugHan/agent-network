@@ -6,7 +6,7 @@ Paired installed runtime .129 SRI matches published expected value.
 Installed private pair package-lock SHA256:
 a3b94d364d655c03462815f6632ac5a83ca547d967be0cdf162a5b2f388fa664
 
-Docker: tests/test906-daemon-private-pair/Dockerfile, pinned Node22.22.2.
+Docker: tests/test906-daemon-provider-management/Dockerfile.private-pair, pinned Node22.22.2.
 Image anet-provider:test906-private-pair.
 Run --rm --network none --read-only --tmpfs /tmp; installed pair mount read-only.
 PASS CLI actual entrypoint reports 2.3.0-preview.163.
@@ -15,4 +15,10 @@ PASS executable not group/other writable.
 PASS daemon start resolves trusted exact CLI then refuses nonexistent profile.
 No live credentials, Hub calls, node starts or inference inside test.
 Container exit 0; removed automatically.
-Production activation: pending at this report revision.
+12:41 +08 production operation (not a production test): own daemon restart complete.
+Old PID 1966499 gone, new PID 2555920; Node22.22.2, new private .129 entry,
+exact .163 ANET_BIN_ABS. Original workdir and config bytes unchanged.
+Hub same node_daemon_39bd1eeae3ee online, version .129, idle, queue 0.
+Read-only requested inventory operation: empty managed store revision0; own-node
+Codex scan unavailable (no local binding, legacy config/scope gaps).
+Do NOT claim scan/account/model switching works merely from version/online status.

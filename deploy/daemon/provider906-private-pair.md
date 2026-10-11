@@ -45,7 +45,8 @@ CLI's `node_modules/@sleep2agi/agent-network/dist/bin/anet.cjs` using `chmod go-
 The CLI's existing sibling runtime resolver picks the paired agent-node; its
 existing daemon start command pins the executable, without an invented launcher.
 
-Before activation, Docker-run `tests/test906-daemon-private-pair` with only this
+Before activation, build `tests/test906-daemon-provider-management/Dockerfile.private-pair`
+with that directory as its context, then Docker-run the image with only this
 prefix mounted read-only at `/pair`, a `/tmp` tmpfs, no network or host secrets.
 This checks package entrypoints and trust pin, not live provider operations.
 
@@ -75,3 +76,20 @@ private state, not in Git. Recover them from the host's encrypted state backup o
 re-register/re-authenticate explicitly; cloning cannot restore accounts. This
 operation changes no reverse proxy, port, Hub URL or vault key. It does not prove
 the host has a complete encrypted backup policy. Do not copy another node's auth.
+
+## Observed cutover (2026-10-11, UTC+08)
+
+At 12:41 own `daemon-dev` was restarted using the exact new pair. The old runtime
+process exited; new runtime PID 2555920 used Node 22.22.2, the new pair's entry,
+and the original home workdir. Hub returned the same daemon identity, online,
+agent-node `.129`, idle/queue 0. CLI pin verification and SSE connection succeeded.
+The profile bytes were unchanged; backup resides in the private directory
+`$HOME/.anet/daemon-dev-provider906-rollback.GsxCYT`. Old pair remains available.
+The tmux socket label is `provider906-upgrade`, session `provider906-supervisor`.
+
+Provider CLI returned an empty managed store (revision 0). Read-only Codex scan
+of the own node returned `unavailable`: it is not in this daemon's local child
+registry and lives in another workdir. Its legacy config also lacks network_id;
+the general nodes directory is group-writable. Do not fabricate a binding or
+weaken path checks to report success. Account/model switching and remote client
+readback remain unverified; a proper scope/adoption plan is still required.

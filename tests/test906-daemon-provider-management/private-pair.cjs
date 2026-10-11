@@ -1,3 +1,4 @@
+// Operator package preflight: mount the exact installed pair read-only at /pair.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {spawnSync} = require('node:child_process');
