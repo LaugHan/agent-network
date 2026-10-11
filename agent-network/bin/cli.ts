@@ -13,6 +13,7 @@
 import { chmodSync, readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, statSync, lstatSync, renameSync, rmSync, cpSync, copyFileSync, unlinkSync, realpathSync, symlinkSync } from "fs";
 import { checkDaemonAnetBin, daemonAnetBinEnv, shouldPinDaemonOnNodeStart } from "../src/daemon-anet-bin.js";
 import { runDaemonAdopt } from "../src/daemon-adopt.js";
+import { readProviderInput, runDaemonProvider } from "../src/daemon-provider-command.js";
 import { stoppedReceiptAtStart, isHubStopped } from "../src/stopped-receipt.js";
 import { formatScrubbedEnvLine, scrubInheritedSessionIdentityEnv } from "../src/daemon-inherited-env.js";
 import { dirname, isAbsolute, join, resolve } from "path";
@@ -4643,6 +4644,8 @@ Daemon (host_supervisor — required by the dashboard's node-creation wizard):
   anet daemon init <name>                                 Create a host_supervisor node config
   anet daemon start <name>                                Start an existing daemon
   anet daemon list                                        List locally-configured daemons
+  anet daemon provider list <name>                        Read daemon-scoped Provider configuration (no secrets)
+  anet daemon provider put <name> --revision N             Save private Provider JSON from stdin (not runtime apply)
 
 Config & tokens:
   anet config [path|json]      Show config summary, path, or raw JSON
@@ -11030,6 +11033,9 @@ Subcommands:
   adopt <alias>        Plan adoption from this workdir (--yes to request; --all supported)
   unadopt <alias>      Plan binding revocation (--yes to apply, never stops node)
   adopted             List active adopted nodes (run from the daemon workdir)
+  provider list <name> Read daemon-scoped Provider configuration (redacted)
+  provider put <name> --revision N
+                      Save private JSON from stdin; does not log in or apply to nodes
 
 Options:
   --force              init only。两种用法:
@@ -11053,6 +11059,14 @@ Run \`anet hub start\` first if you don't yet have a CommHub.`);
   switch (sub) {
     case "adopt": case "unadopt": case "adopted": {
       const code = await runDaemonAdopt(sub, args.slice(2), { cwd: process.cwd(), home: homedir(), login: loadGlobal(), fetch, print: console.log });
+      if (code === 2) markUsageError(); else if (code) markFailed();
+      break;
+    }
+    case "provider": {
+      const code = runDaemonProvider(args.slice(2), { nodesDir: nodesDir(), readInput: () => {
+        if (process.stdin.isTTY) throw new Error("private stdin required");
+        return readProviderInput();
+      }, print: console.log });
       if (code === 2) markUsageError(); else if (code) markFailed();
       break;
     }

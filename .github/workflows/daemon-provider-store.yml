@@ -1,0 +1,25 @@
+name: Daemon Provider persistence
+on:
+  pull_request:
+    paths:
+      - 'agent-network/src/daemon-provider-*.ts'
+      - 'agent-network/src/private-state.ts'
+      - 'agent-network/src/posix-modes.ts'
+      - 'agent-network/bin/cli.ts'
+      - 'tests/test906-daemon-provider-management/**'
+      - '.github/workflows/daemon-provider-store.yml'
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  store:
+    name: daemon-provider-store (Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Private daemon configuration and isolation tests
+        run: |
+          sg docker -c 'docker build -f tests/test906-daemon-provider-management/Dockerfile -t anet-provider-management:test906 .'
+          sg docker -c 'docker run --rm anet-provider-management:test906'

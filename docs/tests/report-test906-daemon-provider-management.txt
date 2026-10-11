@@ -1,0 +1,45 @@
+#906 — daemon Provider persistence foundation (NOT end-to-end management)
+Observed: 2026-10-11T00:39Z / 08:39 Asia/Shanghai
+Base main: 050b7bc400cde1378b35e27fdc8daa6f17841ca8
+Branch: feat/906-daemon-provider-management
+
+Command (Docker only, non-root UID 10001 inside container):
+  sg docker -c 'docker build -f tests/test906-daemon-provider-management/Dockerfile -t anet-provider-management:test906 . && docker run --rm anet-provider-management:test906'
+Base image: oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+Final local image manifest: sha256:8ac1278c600188f3223008a199c51150ede2391f04d59c719d0b074e85acf918
+
+Final results:
+  daemon-provider-store.test.ts: 17 pass / 0 fail / 60 expect calls
+  private-state.test.ts:          8 pass / 0 fail / 18 expect calls
+  Exit 0. Two separate suites, not a runtime/API/network E2E count.
+
+Verified:
+  private persisted API-key configuration and fresh instance readback;
+  Provider -> runtime -> auth -> model shape and unsupported combinations;
+  daemon AND network identity isolation (tested independently);
+  explicit revision conflict and write-lock refusal;
+  no secret in public response or parser errors, bounded input;
+  missing key retains existing key only for same endpoint;
+  endpoint change requires explicit key, no automatic credential forwarding;
+  chmod, symlink, hardlink, root symlink negative controls;
+  local CLI handler save/list/error route, NOT the complete compiled CLI binary.
+
+Earlier attempts retained as facts:
+  First Dockerfile had a malformed copied digest: build failed before tests.
+  Corrected to the existing repository's exact pinned Bun digest.
+  First execution: 10 pass / 1 fail; cross-scope fixture cp produced a nonprivate
+  destination directory, so the permission gate rejected before scope mismatch.
+  Corrected fixture permissions to reach the intended identity negative control;
+  did not relax filesystem checks. Then 15/15, followed by final 17/17 above.
+
+NOT verified / still required:
+  Full CLI bundle/typecheck, remote Hub authorization/secret delivery,
+  client management UI, official ChatGPT login or switch, node binding and
+  actual model/provider requests, native package acceptance or public release.
+  ChatGPT metadata remains credential_present=false; no fake logged-in state.
+  Configured models/keys remain not_checked/not_applied; do not count as usable.
+
+Cleanup: test containers used --rm; fixture directories removed by afterEach.
+Only this task's tagged test image remains. No real keys, local accounts, Hub
+state, daemon process, installed npm package or production configuration touched.
+Recovery questions and remaining gaps: docs/design/906-daemon-provider-management.md
