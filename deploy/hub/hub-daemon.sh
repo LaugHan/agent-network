@@ -96,6 +96,9 @@ set -uo pipefail
 #   内容 = 四处单参 z.record 改双参;无新表无迁移
 #   回滚目标 = 生产机器上当前值(以该机器为准,不以本文件为准);生产 hub 现跑 bun 1.4.0(hub.env BUN_BIN,#1769)
 RUNTIME_DIR="$HOME/.commhub/runtime-v35-preview47"
+# A versioned deployment profile may select an already-installed exact runtime.
+# The default above remains the CLI compatibility floor checked by CI.
+RUNTIME_DIR="${HUB_RUNTIME_DIR:-$RUNTIME_DIR}"
 ENTRY="$RUNTIME_DIR/node_modules/@sleep2agi/commhub-server/bin/commhub.ts"
 ENV_FILE="${HUB_ENV_FILE:-$HOME/.commhub/hub.env}"
 # bun 解析：显式路径优先，其次走 PATH。
