@@ -176,7 +176,18 @@ daemon 通过已固定的 CLI 入口执行 `daemon provider apply <daemon>`，�
 自定义认证使用选定 Provider 的 env_key 与已解析节点环境，不将 key 存在称为登录/推理成功。
 语义依据：https://learn.chatgpt.com/docs/config-file/config-reference 与
 https://learn.chatgpt.com/docs/app-server；实际二进制契约另见 test906 native-provider-probe。
-当前分层证据不等于真实 Hub→daemon→CLI→原生 Codex 整链验收，发布前仍需完成该核心验证。
+2026-10-11 已在隔离 Docker 完成真实 Hub→Node daemon handler→源码构建 CLI→原生
+Codex 0.159.2 的同会话切换核心链路；本地 HTTPS Responses 端点确认新端点/key/model，
+模型回复与凭据均为测试夹具，不代表真实供应商推理、官方账号或原生客户端安装包验收。
+复现入口为 `tests/test906-daemon-provider-management/Dockerfile.native`，运行使用
+`docker run --init --rm --network none`，init 负责回收 tmux 脱离的子进程，不能用降低
+停止验证约束来替代。测试私有 tmux socket 与源码包解析 shim 均在该目录入库。
+
+生命周期 home 检查区分认证方式：没有 auth.json 时，只允许选定自定义 Provider 的
+env_key 在属于本节点的实际 Codex app-server 和 TUI 进程中同时存在且相同；仅配置或
+wrapper 环境不能作证据。目录权限、已有 auth 文件权限、Hub token、进程归属检查保留。
+该检查不宣称凭据远程有效，也不把 keyring/未知认证状态伪装成成功。依据官方认证说明：
+https://learn.chatgpt.com/docs/auth#alternative-model-providers 。
 不新增服务、端口、密钥来源。建表由仓库 db.ts 负责；软件回滚保留表，旧 daemon 不领取
 应用请求。数据库来自既有加密备份；节点配置恢复仍依赖前述私有事务日志/加密备份，
 不能靠 clone 仓库重建身份或凭据，也不能将请求超时等同于节点已回滚。

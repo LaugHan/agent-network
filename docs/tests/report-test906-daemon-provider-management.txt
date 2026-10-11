@@ -227,3 +227,49 @@ Post-restack verification (2026-10-11T00:53Z):
   or released. Existing full server TypeScript failure above remains open.
   Containers --rm, fixtures cleaned by tests, test-only images retained.
   No real credentials, global install, production daemon or production DB used.
+
+2026-10-11 10:14 CST: native single-node application core PASS (TEST-ONLY).
+  Base 6747be72ce0ae1b7e1bc80241d8d154b62205199 plus this working tree.
+  Docker native image manifest list:
+    cbb056c51d66ea4c4025e59da8b79c65d3f17ca5d6d25bf21f94ac0603e9a876
+  Final run readonly-mounted native-application.ts from this tree (adds the new
+  WebSocket client's thread/resume subscription; no model/provider override).
+  --init --rm --network none, non-root uid10001; synthetic credentials only.
+  Actual Hub HTTP -> production Node reconciliation -> compiled CLI -> real
+  identity-scoped stop/start/verify -> native Codex 0.159.2 same thread -> selected
+  HTTPS Responses endpoint/key/model. Exactly two synthetic model turns (old,
+  then new); second turn has no model override. Application receipt succeeded,
+  native verification PASS, no auth.json copied/created, no journal left.
+  Test-only npx shim resolves the exact source-built agent-node package; no CLI,
+  Hub, lifecycle, Codex or daemon handler process response is mocked.
+  Client UI evidence remains the earlier separate browser fixture, not an actual
+  browser-to-native combined run or a native installer acceptance.
+
+  Failures found and corrected, not hidden:
+  - First fixture lacked bunx, then agent-node dependency resolution; corrected
+    image packaging without changing product launch guards.
+  - Detached child PID remained under Bun as PID1; use Docker --init for normal
+    reaping. Stop guard was NOT relaxed. One --rm run's terminal output was lost;
+    no pass/fail claimed for that unobserved run. Observed rerun progressed.
+  - Actual verify rejected custom env_key without auth.json (home_isolated).
+    Fixed by attesting selected env_key in both owned native processes; token,
+    home and existing auth-file permission guards remain. Failure restored old
+    config but verification failed again, so journal was correctly retained.
+  - After that fix application succeeded but the fixture's new WS client had not
+    subscribed to thread notifications; turn completion observation timed out.
+    Explicit thread/resume without selection overrides fixed the fixture.
+  - Earlier CI doc-symbol-pins had two drifted CLI anchors; updated exact lines.
+    doc source-pin floor L8 lacked three English MCP entries; completed index.
+
+  Narrow validation only:
+    login gate + lifecycle facts/preflight: 34/34 PASS, 139 assertions.
+    full CLI TypeScript: PASS in Docker.
+    MCP index: 90/90 entries in both languages, PASS.
+    symbol pins: 0 drift, 8 checked, 8 skipped, 1 immutable ref unavailable in
+      readonly worktree mount; not a complete immutable-ref verification.
+    QA trigger coverage: PASS, all 102 CI-executed dirs retriggerable.
+  No new broad suite. Earlier full server TypeScript limitation still applies.
+  Final native test exit0 after owned CLI stop and temp state cleanup. Containers
+  removed; one retained failed observation container was inspected exited1 then
+  removed. TEST-ONLY images retained. No production/global packages touched.
+  Not merged, publicly released or installed on the user's daemon yet.

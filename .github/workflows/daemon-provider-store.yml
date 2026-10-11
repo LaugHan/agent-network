@@ -30,3 +30,15 @@ jobs:
         run: |
           sg docker -c 'docker build -f tests/test906-daemon-provider-management/Dockerfile.transport -t anet-provider-management:test906-transport .'
           sg docker -c 'docker run --rm --network none anet-provider-management:test906-transport'
+  native-application:
+    name: daemon-provider-native-application (Docker)
+    needs: store
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Same-thread native Codex provider application (offline, TEST-ONLY)
+        run: |
+          sg docker -c 'docker build -f tests/test906-daemon-provider-management/Dockerfile.native -t anet-provider-management:test906-native .'
+          # A real init reaps the detached tmux grandchildren; Bun PID 1 does not.
+          sg docker -c 'docker run --init --rm --network none anet-provider-management:test906-native'

@@ -1661,7 +1661,8 @@ async function startCopresenceOrchestration(nodeId: string, opts: CopresenceOpti
         try { chmodIfPosix(step.dst, step.mode); } catch { /* best effort */ }
         console.log(`[anet] staged ${step.name} into the node CODEX_HOME (${step.reason}) — ${step.because}`);
       }
-    } else if (!existsSync(join(opts.codexHome, "auth.json"))) {
+    } else if (!existsSync(join(opts.codexHome, "auth.json"))
+      && codexHomeLoginState(opts.codexHome, { ...process.env, ...opts.configEnv }).state === 'needs-login') {
       console.error(`[anet] ⚠ --no-inherit-codex-home, and ${join(opts.codexHome, "auth.json")} does not exist.`);
       console.error(`[anet]   codex TUI 会停在登录选择页，且不会说明原因（#853）。先在该 HOME 下登录一次。`);
     }
