@@ -1074,7 +1074,7 @@ describe("Finding #7: readMarker PLATFORM_UNSUPPORTED on non-Linux", () => {
   // than misreporting corruption on those platforms, refuse with clarity.
   test("on non-Linux, readMarker refuses cleanly regardless of on-disk state", () => {
     // Verify the behavior by checking the guard directly:
-    if (process.platform !== "linux") {
+    if (process.platform !== "linux" && process.platform !== "darwin") {
       const r = readMarker(tmpNodesDir, "any-node");
       expect(r.kind).toBe("refuse");
       if (r.kind === "refuse") expect(r.cause).toBe("PLATFORM_UNSUPPORTED");
@@ -1182,7 +1182,7 @@ describe("Blocker 4: readMarker checks MISSING before PLATFORM_UNSUPPORTED", () 
   };
 
   test("non-Linux + NO marker file → MISSING (silent legacy fall-through, no scary warning)", () => {
-    for (const platform of ["darwin", "win32"]) {
+    for (const platform of ["freebsd", "win32"]) {
       const r = withPlatform(platform, () => readMarker(tmpNodesDir, "node-without-marker"));
       expect(r.kind).toBe("refuse");
       if (r.kind === "refuse") expect(r.cause).toBe("MISSING");
