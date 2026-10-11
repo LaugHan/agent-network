@@ -72,3 +72,9 @@ Original backup SHA256 remains unchanged. Hub child stopped; --rm container
 anet-hub121-offline-http removed, exec exited 0. No production restart.
 This clears the runbook startup/auth-read step, NOT vault decryption, fleet
 heartbeat/ack recovery, Provider application or end-to-end product acceptance.
+
+CI follow-up: qa-trigger-coverage run38111335314 on 490c847 failed because the
+new CI-executed suite was absent from qa.yml's trigger list. Added its directory
+to BOTH pull_request and push filters, without changing the checker or assertions.
+The focused launcher CI itself passed on 490c847. Fresh-head CI remains required;
+neither the older success nor this trigger correction means the new head is green.
