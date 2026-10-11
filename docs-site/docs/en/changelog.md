@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased: clone a child node on the same daemon (2026-10-11)
+
+- New Hub tool `clone_node`: turn a child that this daemon already created into a new node on that same daemon. New alias, new `ntok_`. The source token, `secrets.env`, and `auth.json` are not copied. Non-commhub channels (they often carry bot credentials) are not copied.
+- `workdir_policy` defaults to `new_empty`: a new empty directory under the same parent as the source workdir. Source contents are not copied. If the source has no project workdir and lives in the daemon's cwd, the clone is placed at `<daemon cwd>/clone-work/<folder>`. `share_source` is explicit: both nodes use the source workdir, and the token is still new.
+- `copy_session` defaults to true. Claude, Codex, and Grok copy the session id only together with the on-disk transcript; if that file is missing, the id is not written. OpenCode sessions live in the OpenCode server, so only the id is copied and both nodes address the same server transcript. That is not a private copy. Local `anet node clone` still does not copy sessions.
+- Naming a different daemon is refused (`cross_daemon_refused`). `ok: true` means the request was queued and a doorbell was attempted. It does not mean the child has registered, and it does not mean a session file was copied. This is not an npm release. Hub request #938.
+
 ## Unreleased: OpenCode V2 user guide (2026-10-11)
 
 - anet.sh gains an [OpenCode V2](/en/guide/opencode) guide in Chinese and English. The sidebar entry sits next to Grok. It covers V2 create on `opencode-cli`, co-presence start, Hub dialogue, and the daemon constraints.
