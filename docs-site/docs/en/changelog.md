@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased: daemon-created children keep USER and proxy variables (2026-10-11)
+
+- When the daemon spawns a child, it now copies `USER`, `LOGNAME`, and `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` / `NO_PROXY` (both spellings) from its own environment, in addition to `PATH`, `HOME`, and `LANG`. Unset or empty values are not copied.
+- Before, on macOS every daemon-created `claude-agent-sdk` node answered each task with "Not logged in · Please run /login": Claude Code reads its Keychain login by `$USER`. On machines that need a proxy to reach the internet, the child connected directly and Anthropic refused it (`403 Request not allowed`), while runtime readiness, which runs with the daemon's environment, still reported reachable.
+- Still an allowlist: tokens, API keys, `NODE_OPTIONS` and similar never reach the child. `USER` / `LOGNAME` remain reserved, so Hub-supplied env cannot set them.
+
 ## Unreleased: clone a child node on the same daemon (2026-10-11)
 
 - New Hub tool `clone_node`: turn a child that this daemon already created into a new node on that same daemon. New alias, new `ntok_`. The source token, `secrets.env`, and `auth.json` are not copied. Non-commhub channels (they often carry bot credentials) are not copied.

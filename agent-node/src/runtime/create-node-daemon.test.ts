@@ -4,6 +4,7 @@ import {
   buildAnetArgsDaemon,
   childConfigFieldsFromSpec,
   minimalEnv,
+  DAEMON_CHILD_INHERITED_ENV_KEYS,
   computeChildPath,
   loadAndVerifyAnetBin,
   probeAnetBinReadiness,
@@ -800,6 +801,76 @@ describe("#1490 minimalEnv — cross-platform HOME resolution", () => {
     expect(
       resolveChildHome({ HOMEDRIVE: "D:", HOMEPATH: "\\Users\\hd" }, "win32"),
     ).toBe("D:\\Users\\hd");
+  });
+});
+
+// Desktop local daemon on macOS: every claude-agent-sdk child failed its first
+// turn with "Not logged in · Please run /login" (Claude Code reads its macOS
+// Keychain item by account = $USER), and behind a local proxy the same child
+// got "403 Request not allowed" because HTTPS_PROXY never reached it. Only
+// USER + proxy together made `claude -p` answer under the child env.
+describe("minimalEnv — daemon identity + proxy passthrough", () => {
+  const parentEnv = {
+    HOME: "/Users/a",
+    USER: "a",
+    LOGNAME: "a",
+    HTTPS_PROXY: "http://127.0.0.1:7897",
+    https_proxy: "http://127.0.0.1:7897",
+    HTTP_PROXY: "http://127.0.0.1:7897",
+    http_proxy: "http://127.0.0.1:7897",
+    ALL_PROXY: "socks5://127.0.0.1:7897",
+    all_proxy: "socks5://127.0.0.1:7897",
+    NO_PROXY: "localhost,127.0.0.1",
+    no_proxy: "localhost,127.0.0.1",
+  };
+
+  test("🔴 witnessed-red: darwin child keeps USER / LOGNAME (Keychain login lookup)", () => {
+    const env = minimalEnv({}, "darwin", parentEnv);
+    expect(env.USER).toBe("a");
+    expect(env.LOGNAME).toBe("a");
+  });
+
+  test("🔴 witnessed-red: proxy variables reach the child in both spellings", () => {
+    const env = minimalEnv({}, "darwin", parentEnv);
+    for (const k of ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"]) {
+      expect(env[k]).toBe(parentEnv[k as keyof typeof parentEnv]);
+    }
+  });
+
+  test("still an allowlist: credentials and runtime-config keys in the daemon env do not leak", () => {
+    const env = minimalEnv({}, "linux", {
+      ...parentEnv,
+      COMMHUB_TOKEN: "ntok_secret",
+      ANTHROPIC_API_KEY: "sk-ant",
+      OPENAI_API_KEY: "sk-oai",
+      NODE_OPTIONS: "--require /tmp/evil.js",
+      SHELL: "/bin/zsh",
+      TMPDIR: "/tmp/x",
+    });
+    expect(Object.keys(env).sort()).toEqual([...DAEMON_CHILD_INHERITED_ENV_KEYS, "PATH", "HOME", "LANG"].sort());
+  });
+
+  test("unset or empty parent values are omitted, not passed as empty strings", () => {
+    const env = minimalEnv({}, "darwin", { HOME: "/Users/a", USER: "", HTTPS_PROXY: undefined });
+    expect("USER" in env).toBe(false);
+    expect("HTTPS_PROXY" in env).toBe(false);
+  });
+
+  test("an explicit extra proxy value wins over the inherited one", () => {
+    const env = minimalEnv({ HTTPS_PROXY: "http://node-proxy:3128" }, "darwin", parentEnv);
+    expect(env.HTTPS_PROXY).toBe("http://node-proxy:3128");
+  });
+
+  test("USER stays reserved for callers: only the daemon's own value can set it", () => {
+    expect(() => minimalEnv({ USER: "root" }, "darwin", parentEnv)).toThrow(/reserved env key/);
+  });
+
+  test("inherited key set is exactly identity + proxy (additions need review)", () => {
+    expect(new Set(DAEMON_CHILD_INHERITED_ENV_KEYS)).toEqual(new Set([
+      "USER", "LOGNAME",
+      "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy",
+      "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy",
+    ]));
   });
 });
 

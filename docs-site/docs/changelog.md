@@ -1,5 +1,11 @@
 # 更新日志
 
+## 未发布：daemon 创建的子节点保留 USER 与代理变量（2026-10-11）
+
+- daemon 拉起子节点时，除 `PATH`、`HOME`、`LANG` 外，还从 daemon 自己的环境复制 `USER`、`LOGNAME` 和 `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` / `NO_PROXY`（大小写两种写法）。没设或为空的不复制。
+- 之前在 macOS 上，daemon 创建的 `claude-agent-sdk` 节点每个任务都回「Not logged in · Please run /login」：Claude Code 按 `$USER` 去钥匙串读登录。需要代理才能出网的机器上，子节点直连被 Anthropic 拒绝（`403 Request not allowed`），而 runtime 就绪检查用的是 daemon 的环境，照样报可达。
+- 仍是白名单：token、API key、`NODE_OPTIONS` 等不会传给子节点。`USER` / `LOGNAME` 仍在保留键里，Hub 下发的 env 不能设置它们。
+
 ## 未发布：同一 daemon 上克隆子节点（2026-10-11）
 
 - 新 Hub 工具 `clone_node`：把已经由这台 daemon 创建的子节点，在同一台 daemon 上做成一个新节点。新别名、新 `ntok_`。源节点的 token、`secrets.env`、`auth.json` 不复制。非 commhub 频道（常带机器人凭据）不复制。
