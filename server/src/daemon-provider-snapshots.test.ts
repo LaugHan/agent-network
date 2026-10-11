@@ -181,6 +181,15 @@ test("real HTTP authentication -> daemon handler -> pinned CLI -> scoped public 
   db.run("UPDATE nodes SET config_snapshot=?1 WHERE node_id=?2", [JSON.stringify({ role: "host_supervisor" }), nodeId]);
   const dir = join(root, ".anet/nodes", daemonAlias); mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(join(dir, "config.json"), JSON.stringify({ role: "host_supervisor", network_id: netId, node_id: nodeId }), { mode: 0o600 });
+  for (const child of ['bound', 'neighbour']) {
+    const childId = `n_scan_${child}`;
+    db.run('INSERT INTO nodes (node_id,node_name,alias,network_id,runtime) VALUES (?1,?2,?2,?3,\'codex-app-server\')', [childId, child, netId]);
+    db.run('INSERT INTO node_daemon_bindings (request_id,network_id,node_id,daemon_node_id,workdir,requested_by,status,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,\'active\',1,1)',
+      [`binding_scan_${child}`, netId, childId, child === 'bound' ? nodeId : 'another-daemon', root, owner.user!.user_id]);
+    const home = join(root, '.anet/nodes', child, 'codex-home'); mkdirSync(home, { recursive: true, mode: 0o700 });
+    writeFileSync(join(home, '../config.json'), JSON.stringify({ node_id: childId, alias: child, runtime: 'codex-app-server', network_id: netId }), { mode: 0o600 });
+    writeFileSync(join(home, 'config.toml'), 'model_provider = "deepseek"\nmodel = "fixture-model"\n[model_providers.deepseek]\nenv_key = "TEST_API_KEY"\n', { mode: 0o600 });
+  }
   const hub = (await import("./server")).bootServer({ port: 0, hostname: "127.0.0.1" });
   const url = `http://127.0.0.1:${hub.port}/mcp`;
   const rpc = (credential: string) => async (name: string, args: any) => {
@@ -201,6 +210,11 @@ test("real HTTP authentication -> daemon handler -> pinned CLI -> scoped public 
     await reconcileProviderSnapshots({ workDir: root, alias: daemonAlias, networkId: netId, daemonId: nodeId, callCommHub: daemon,
       warn: () => { throw Error("unexpected_HTTP_readback_failure"); } });
     const read = await human("daemon_provider_snapshot", { action: "read", id: refresh.request_id, network_id: netId });
-    expect(read.status).toBe("succeeded"); expect(read.snapshot).toEqual({ network_id: netId, daemon_node_id: nodeId, revision: 0, source: "daemon", providers: [] });
+    expect(read.status).toBe("succeeded"); expect(read.snapshot).toMatchObject({ network_id: netId, daemon_node_id: nodeId, revision: 0, source: "daemon", providers: [], codex_inventory: { scope: 'hub_bound_nodes' } });
+    expect(read.snapshot.codex_inventory.rows).toHaveLength(1);
+    expect(read.snapshot.codex_inventory.rows[0]).toMatchObject({ node_id: 'n_scan_bound', configured_provider: 'deepseek', configured_model: 'fixture-model', credential_status: 'unknown' });
+    const foreign = await human('daemon_provider_snapshot', { action: 'refresh', id: nodeId, network_id: netId });
+    const bad = structuredClone(read.snapshot); bad.codex_inventory.rows[0].node_id = 'n_scan_neighbour';
+    expect((await daemon('ack_daemon_provider_snapshot', { request_id: foreign.request_id, snapshot: bad })).ok).toBe(false);
   } finally { hub.stop(true); }
 });

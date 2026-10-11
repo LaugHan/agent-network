@@ -20,4 +20,4 @@ COPY tests/test906-daemon-provider-management/node-readback.mjs /work/node-readb
 RUN useradd --create-home --uid 10001 runner
 ENV ANET_BIN_ABS=/work/agent-network/dist/bin/anet.cjs ANET_DAEMON_ALLOW_ENV_BIN=1 COMMHUB_DB=/tmp/test906-transport.db
 USER runner
-CMD ["sh", "-c", "node /work/node-readback.mjs && bun test --bail server/src/daemon-provider-snapshots.test.ts && COMMHUB_DB=/tmp/test906-audience.db bun test --bail server/src/tool-audience-http.test.ts"]
+CMD ["sh", "-c", "node /work/node-readback.mjs && bun test --bail agent-network/src/daemon-codex-inventory.test.ts server/src/daemon-provider-snapshots.test.ts && COMMHUB_DB=/tmp/test906-audience.db bun test --bail server/src/tool-audience-http.test.ts"]

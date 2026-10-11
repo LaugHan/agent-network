@@ -6,6 +6,17 @@ import { db } from "./db";
 import { getUserNetworkRole } from "./auth";
 import { validateDaemonProviderSnapshot } from "./shared/daemon-provider-snapshot";
 import { encryptSecret, decryptSecret, VaultError } from './vault';
+import { buildControllableMap } from './node-lifecycle-controllable';
+
+export function providerScanTargets(networkId: string, daemonId: string) {
+  const ownership = buildControllableMap(
+    db.all<{ request_id: string; daemon_node_id: string }>('SELECT request_id,daemon_node_id FROM node_create_requests WHERE network_id=?1', networkId),
+    db.all<{ node_id: string; daemon_node_id: string }>('SELECT node_id,daemon_node_id FROM node_daemon_bindings WHERE network_id=?1 AND status=\'active\'', networkId));
+  const targets = db.all<{ node_id: string; alias: string }>('SELECT node_id,alias FROM nodes WHERE network_id=?1 ORDER BY node_id', networkId)
+    .filter(n => ownership.get(n.node_id) === daemonId && typeof n.alias === 'string');
+  if (targets.length > 200) throw Error('inventory_limit'); // no silent incomplete denominator
+  return targets;
+}
 
 type Human = { userId?: string | null; isNode: boolean; networkId: string | null };
 type Daemon = { ok: false; error: string } | { ok: true; networkId: string; daemonNodeId: string; daemonAlias: string };
@@ -109,7 +120,7 @@ export function pullProviderSnapshots(d: Daemon, acceptWrites = false) {
   try { return { ok: true, requests: requests.flatMap(r => {
     if (!acceptWrites && db.get('SELECT request_id FROM daemon_provider_writes WHERE request_id=?1', r.request_id)) return [];
     const write = privateWrite(r.request_id, d.networkId, d.daemonNodeId);
-    return [write ? { ...r, operation: 'put', ...write } : r];
+    return [write ? { ...r, operation: 'put', ...write } : { ...r, scan_targets: providerScanTargets(d.networkId, d.daemonNodeId) }];
   }) }; } catch { return denied('provider_write_unavailable'); }
 }
 export function ackProviderSnapshot(d: Daemon, requestId: string, snapshot?: unknown, failed = false, appliedRevision?: number) {
@@ -124,6 +135,13 @@ export function ackProviderSnapshot(d: Daemon, requestId: string, snapshot?: unk
   if (!failed) {
     try { safe = validateDaemonProviderSnapshot(snapshot, d.networkId, d.daemonNodeId); }
     catch { return denied("invalid_provider_snapshot"); }
+    if ((safe as any).codex_inventory) {
+      try {
+        const targets = new Map(providerScanTargets(d.networkId, d.daemonNodeId).map(n => [n.node_id, n.alias]));
+        const rows = (safe as any).codex_inventory.rows;
+        if (rows.length !== targets.size || rows.some((r: any) => targets.get(r.node_id) !== r.alias)) return denied('invalid_provider_snapshot');
+      } catch { return denied('invalid_provider_snapshot'); }
+    }
     try {
       const write = privateWrite(requestId, d.networkId, d.daemonNodeId);
       if (write) {

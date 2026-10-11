@@ -69,6 +69,7 @@
     "node": ">=22.13.0"
   },
   "dependencies": {
+    "smol-toml": "1.9.1",
     "@inquirer/prompts": "^8.4.3",
     "@larksuiteoapi/node-sdk": "^1.42.0",
     "markdown-it": "^14.1.0",

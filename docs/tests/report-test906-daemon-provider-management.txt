@@ -122,3 +122,24 @@ Post-restack verification (2026-10-11T00:53Z):
   No actual model call, native client, official login or production deployment
   covered by this result. Client form implementation proceeds independently.
   Test container --rm; fixture directories removed; test image retained.
+
+2026-10-11 09:14 CST incremental existing-Codex inventory (core only):
+  Source increment on dedf167634fdca032be06d1dfadb242c1e56c801, before commit.
+  Added read-only CLI scan, local workdir/adoption lookup, Hub-bound identity
+  roster, key-free TOML/auth projection and optional installation version probe.
+  Dockerfile.transport image b8997b523ae188f89016a2f437cc9466de1cc45e77c7247d6f6e95b1adad0fcc.
+  Runtime source/tests mounted READ-ONLY for later incremental assertions;
+  real compiled CLI in the image includes the scanner. No host credentials/data.
+  Strict CLI/scanner TypeScript: PASS.
+  Core tests: 2 pass / 0 fail / 39 assertions; 11 unrelated tests filtered.
+  - actual Node CLI scans existing config without importing/writing;
+  - token/path/foreign neighbour absent from output, foreign network unavailable;
+  - keyring/env-key unknown != logout, symlinked auth unreadable;
+  - real HTTP user authentication -> Hub-bound daemon -> pinned CLI -> receipt;
+  - foreign-daemon node in ACK refused.
+  After adding version probe and exact roster ACK validation, only the affected
+  real HTTP test reran: 1 pass / 0 fail / 26 assertions, exit 0. Not counted as
+  an additional independent feature or a full suite run.
+  No model invocation, account switch, node restart, native install or release.
+  Existing unadopted Codex/process state/profile catalog remain explicit gaps.
+  Fixture directories cleaned, containers --rm, TEST-ONLY image retained.

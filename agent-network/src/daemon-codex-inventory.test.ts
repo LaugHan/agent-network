@@ -1,0 +1,48 @@
+import { expect, test } from 'bun:test';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { scanDaemonCodex } from './daemon-codex-inventory';
+import { validCodexInventory } from '../../server/src/shared/codex-inventory';
+
+// The suite Dockerfile builds/pins the real CLI. Generic unit runners cannot
+// substitute an installed/global CLI for this integration evidence.
+test.skipIf(!process.env.ANET_BIN_ABS)('Codex scan core: real CLI finds bound existing config, excludes neighbours, emits no secret and writes nothing', () => {
+  const root = mkdtempSync(join(tmpdir(), 'codex-scan906-'));
+  try {
+    const nodes = join(root, '.anet/nodes'), daemon = join(nodes, 'supervisor');
+    mkdirSync(daemon, { recursive: true, mode: 0o700 });
+    writeFileSync(join(daemon, 'config.json'), JSON.stringify({ role: 'host_supervisor', network_id: 'net_scan', node_id: 'n_supervisor' }), { mode: 0o600 });
+    const target = (alias: string, runtime = 'codex-app-server') => {
+      const dir = join(nodes, alias); mkdirSync(join(dir, 'codex-home'), { recursive: true, mode: 0o700 });
+      writeFileSync(join(dir, 'config.json'), JSON.stringify({ node_id: `n_${alias}`, alias, runtime, model: 'node-model', network_id: 'net_scan' }), { mode: 0o600 });
+      return dir;
+    };
+    const first = target('first'), second = target('second');
+    const auth = JSON.stringify({ auth_mode: 'chatgpt', tokens: { account_id: '11111111-1111-1111-1111-111111111111', access_token: 'TEST-ONLY-secret-access', refresh_token: 'TEST-ONLY-secret-refresh' } });
+    writeFileSync(join(first, 'codex-home/auth.json'), auth, { mode: 0o600 });
+    writeFileSync(join(first, 'codex-home/config.toml'), 'model = "codex-test"\nmodel_provider = "openai"\n', { mode: 0o600 });
+    writeFileSync(join(second, 'codex-home/config.toml'), 'model = "other-secret-model"', { mode: 0o600 });
+    const out = JSON.parse(execFileSync(process.execPath.includes('bun') ? 'node' : process.execPath,
+      [process.env.ANET_BIN_ABS!, 'daemon', 'provider', 'scan', 'supervisor'],
+      { cwd: root, input: JSON.stringify([{ node_id: 'n_first', alias: 'first' }]), encoding: 'utf8', env: { PATH: process.env.PATH, HOME: root }, timeout: 10000 }));
+    expect(out.ok).toBe(true); expect(validCodexInventory(out.codex_inventory)).toBe(true);
+    expect(out.codex_inventory.rows).toHaveLength(1);
+    expect(out.codex_inventory.rows[0]).toMatchObject({ configured_provider: 'openai', configured_model: 'codex-test', node_configured_model: 'node-model', auth_kind: 'chatgpt', credential_status: 'present', verification: 'not_checked' });
+    for (const secret of ['TEST-ONLY-secret', root, 'other-secret-model']) expect(JSON.stringify(out)).not.toContain(secret);
+    expect(readFileSync(join(first, 'codex-home/auth.json'), 'utf8')).toBe(auth);
+    // Private key reference is not an available credential; keyring missing file is not logout.
+    writeFileSync(join(first, 'codex-home/config.toml'), 'model_provider = "deepseek"\ncli_auth_credentials_store = "keyring"\n[model_providers.deepseek]\nenv_key = "DEEPSEEK_API_KEY"\n', { mode: 0o600 });
+    const inventory = scanDaemonCodex(nodes, [{ node_id: 'n_first', alias: 'first' }], 'net_scan', root);
+    expect(inventory.rows[0]).toMatchObject({ auth_kind: 'api_key', credential_status: 'unknown', provider_ids: ['deepseek'], account_fingerprint: null });
+    expect(validCodexInventory({ ...inventory, key: 'TEST-ONLY-secret' })).toBe(false);
+    expect(() => scanDaemonCodex(nodes, [{ node_id: 'n_first', alias: '../first' }], 'net_scan')).toThrow();
+    // A foreign-network identity and symlinked credentials stay unknown, never followed.
+    expect(scanDaemonCodex(nodes, [{ node_id: 'n_first', alias: 'first' }], 'net_foreign', root).rows[0].status).toBe('unavailable');
+    rmSync(join(first, 'codex-home/auth.json'));
+    symlinkSync(join(second, 'codex-home/config.toml'), join(first, 'codex-home/auth.json'));
+    writeFileSync(join(first, 'codex-home/config.toml'), '', { mode: 0o600 });
+    expect(scanDaemonCodex(nodes, [{ node_id: 'n_first', alias: 'first' }], 'net_scan', root).rows[0]).toMatchObject({ credential_status: 'unreadable' });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

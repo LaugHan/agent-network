@@ -2,6 +2,7 @@
 import { execFile } from "node:child_process";
 import { getAnetBinAbs, minimalEnv } from "./create-node-daemon.js";
 import { validateDaemonProviderSnapshot } from "../shared/daemon-provider-snapshot.js";
+import { requiredCliStatus, resolveOnPathReal, execVersionReal } from './runtime-readiness.js';
 
 export type SnapshotDeps = {
   callCommHub: (name: string, args: Record<string, unknown>) => Promise<any>;
@@ -35,17 +36,27 @@ export async function writeLocalProvider(deps: Pick<SnapshotDeps, 'workDir' | 'a
   if (!ok || snapshot.revision !== request.expected_revision + 1) throw new Error('provider_write_unavailable');
   return validateDaemonProviderSnapshot(snapshot, deps.networkId, deps.daemonId);
 }
-export async function readLocalProviderSnapshot(deps: Pick<SnapshotDeps, "workDir" | "alias" | "networkId" | "daemonId">) {
+export async function readLocalProviderSnapshot(deps: Pick<SnapshotDeps, "workDir" | "alias" | "networkId" | "daemonId">, targets?: unknown[]) {
   if (!/^[\p{L}\p{N}][\p{L}\p{N}_.-]{0,99}$/u.test(deps.alias) || !deps.networkId || !deps.daemonId) throw new Error("provider_snapshot_unavailable");
   // Existing daemon boot trust root pins the executable. Use Node directly,
   // minimal env (no inherited API keys / NODE_OPTIONS), no shell or secret argv.
   const raw = await new Promise<string>((resolve, reject) => {
-    execFile(process.execPath, [getAnetBinAbs(), "daemon", "provider", "list", deps.alias],
+    const child = execFile(process.execPath, [getAnetBinAbs(), "daemon", "provider", targets ? "scan" : "list", deps.alias],
       { cwd: deps.workDir, env: minimalEnv(), timeout: 10_000, maxBuffer: 1024 * 1024, encoding: "utf8", windowsHide: true },
       (error, stdout) => error ? reject(new Error("provider_snapshot_unavailable")) : resolve(stdout));
+    if (targets) {
+      child.stdin?.on('error', () => reject(new Error('provider_snapshot_unavailable')));
+      child.stdin?.end(JSON.stringify(targets));
+    }
   });
   const { ok, ...snapshot } = JSON.parse(raw);
   if (ok !== true) throw new Error("provider_snapshot_unavailable");
+  if (snapshot.codex_inventory) {
+    const env = minimalEnv();
+    const cli = await requiredCliStatus('codex-app-server', env.PATH ?? '', env,
+      { resolveOnPath: resolveOnPathReal, execVersion: execVersionReal }, 1500);
+    snapshot.codex_inventory.installation = { status: cli.cli === 'not_required' ? 'unknown' : cli.cli, version: cli.version ?? null };
+  }
   return validateDaemonProviderSnapshot(snapshot, deps.networkId, deps.daemonId);
 }
 
@@ -70,7 +81,8 @@ export function reconcileProviderSnapshots(deps: SnapshotDeps): Promise<void> {
             snapshot = await writeLocalProvider(deps, request);
           } else {
             if (request.operation !== undefined) throw new Error('unsupported_operation');
-            snapshot = validateDaemonProviderSnapshot(await (deps.readSnapshot ? deps.readSnapshot() : readLocalProviderSnapshot(deps)), deps.networkId, deps.daemonId);
+            if (request.scan_targets !== undefined && (!Array.isArray(request.scan_targets) || request.scan_targets.length > 200)) throw new Error('invalid_scan_targets');
+            snapshot = validateDaemonProviderSnapshot(await (deps.readSnapshot ? deps.readSnapshot() : readLocalProviderSnapshot(deps, request.scan_targets)), deps.networkId, deps.daemonId);
           }
         } catch {
           await deps.callCommHub("ack_daemon_provider_snapshot", { request_id: request.request_id, failed: true });

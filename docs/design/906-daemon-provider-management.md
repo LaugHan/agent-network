@@ -88,6 +88,27 @@ application=not_applied；模型清单是用户配置，不是 entitlement 或�
 
 ## 恢复六问
 
+### 既有 Codex 只读扫描（首版增量）
+
+`provider scan <daemon>` 从 stdin 接收 Hub 根据当前网络创建记录与 active bindings
+选出的 node_id/alias 清单；不接受远端路径。daemon 使用本地 child-workdirs 注册表
+及实际节点 config.json 确认身份，支持原目录与收编节点目录；不能确认时逐节点返回 unavailable。
+工作区邻居不会自动进入结果。200 节点为本次扫描上限，超过则拒绝而非隐瞒截断。
+用户刷新 Provider 页时扫描并回读；保存 Provider 不自动改写已有 Codex 配置。
+
+TOML 使用锁定的 smol-toml 解析，只输出配置中的 Provider ID、模型与节点模型，三者
+不是正在运行进程的最终选择（启动参数/会话覆盖仍可能不同）。CODEX_HOME 只输出来源及
+不可逆引用，不输出路径；认证文件仅投影认证类型和账号指纹，不输出 email/token/key。
+读取拒绝符号链接、非本用户文件及不安全权限，认证文件不可公开读取；keyring/auto/ephemeral
+或 env_key 没有本地凭据证据时是 unknown，不是 logout。不会触发登录或模型费用。
+daemon 复用 runtime-readiness 的 PATH/--version 探针（1.5 秒），只返回状态/版本。
+该探针只说明 daemon 启动路径的 Codex，不外推每个节点自定义二进制版本。
+
+仍有差额：未收编的独立 Codex 不被冒充此 daemon 所有；宿主默认配置的独立目录展示、
+完整 profile 模型目录及运行中会话实际账号/model 比对尚未接入。本增量不等于账号切换完成。
+扫描不新增端口/服务/数据库表，不保存或迁移凭据；回滚旧版本忽略可选 inventory 字段。
+恢复仍需原节点配置、child-workdirs 注册表及各自认证的加密备份；缺文件明确未知，不自动重建账号。
+
 - 启动：不新增常驻进程；权威入口 `agent-network/bin/cli.ts` 的 daemon provider 分支，
   `agent-node/src/runtime/daemon-provider-snapshot.ts` 由既有 daemon 的 SSE/重连处理调用；
   Hub 由 `server/src/tools.ts` 注册协议，`server/src/db.ts` 增量建表。

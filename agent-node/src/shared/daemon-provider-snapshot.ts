@@ -1,5 +1,6 @@
 // #906 public Provider snapshot contract. Mirrored across separately published
 // server/agent-node packages; drift is tested. No secret-shaped extension fields.
+import { validCodexInventory } from './codex-inventory.js';
 export function validateDaemonProviderSnapshot(value: unknown, networkId: string, daemonId: string): unknown {
   const fail = (): never => { throw new Error("invalid_provider_snapshot"); };
   const obj = (v: any, fields: string[]) => {
@@ -12,7 +13,8 @@ export function validateDaemonProviderSnapshot(value: unknown, networkId: string
     if (!Array.isArray(v) || (!empty && !v.length) || v.length > max) fail();
     return v;
   };
-  const s = obj(value, ["network_id", "daemon_node_id", "revision", "source", "providers"]);
+  const s = obj(value, ["network_id", "daemon_node_id", "revision", "source", "providers", "codex_inventory"]);
+  if (s.codex_inventory !== undefined && !validCodexInventory(s.codex_inventory)) fail();
   if (s.network_id !== networkId || s.daemon_node_id !== daemonId || s.source !== "daemon"
     || !Number.isSafeInteger(s.revision) || s.revision < 0) fail();
   const providers = arr(s.providers, 100, true);
