@@ -1,0 +1,18 @@
+Observed 2026-10-11 12:40 +08
+Scope: own-daemon operator upgrade; not public desktop publication.
+Formal main CLI .163 input SHA256:
+15f498ac22663bb948743fefbc93906751e4aaf493990a484e799a38a5837c58
+Paired installed runtime .129 SRI matches published expected value.
+Installed private pair package-lock SHA256:
+a3b94d364d655c03462815f6632ac5a83ca547d967be0cdf162a5b2f388fa664
+
+Docker: tests/test906-daemon-private-pair/Dockerfile, pinned Node22.22.2.
+Image anet-provider:test906-private-pair.
+Run --rm --network none --read-only --tmpfs /tmp; installed pair mount read-only.
+PASS CLI actual entrypoint reports 2.3.0-preview.163.
+PASS agent-node actual entrypoint reports 2.5.0-preview.129.
+PASS executable not group/other writable.
+PASS daemon start resolves trusted exact CLI then refuses nonexistent profile.
+No live credentials, Hub calls, node starts or inference inside test.
+Container exit 0; removed automatically.
+Production activation: pending at this report revision.
