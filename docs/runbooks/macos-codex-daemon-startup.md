@@ -7,6 +7,12 @@ must support the same creation flags. In particular, the default Codex
 co-presence full-access flag requires Hub preview.121 and agent-node
 preview.129; an older Hub rejects it before daemon startup.
 
+The daemon passes its installer-supplied `ANET_AGENT_NODE_BIN` to the child
+CLI only after proving it is the currently executing daemon entrypoint.
+The child CLI still validates its exact release-paired package. Previously
+the narrow child environment dropped the pin, allowing the bridge to download
+and execute a different runtime even though the daemon was updated.
+
 The CLI starts the co-presence app-server, bridge and TUI, writes their
 ownership marker before spawning, then records each pane's process birth.
 On Darwin the kernel APIs `proc_pidinfo`, `proc_listallpids` and

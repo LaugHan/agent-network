@@ -17,6 +17,7 @@ permissions:
 jobs:
   regression:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t anet-codex-startup -f tests/test-macos-codex-daemon-startup/Dockerfile .
