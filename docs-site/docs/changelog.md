@@ -1,5 +1,10 @@
 # 更新日志
 
+## 未发布：OpenCode V2 用户指南（2026-10-11）
+
+- anet.sh 增加 [OpenCode V2](/guide/opencode)（中英），侧栏放在 Grok 旁边。它说明 `opencode-cli` 的 V2 创建、共存启动、Hub 对话和 daemon 约束。
+- 创建路径按已发布的 preview 通道写。模型目录读取器（#2574）写明只在 main 上，尚未接到 daemon、Hub 或客户端，也不是一条用户命令。npm `latest` 仍没有 `--opencode-generation`。
+
 ## 未发布：OpenCode V2 共存创建对齐本机 Provider（2026-10-10）
 
 - 创建 OpenCode V2 共存节点时，模型和 Provider 取自这台机器上 OpenCode 自己的 `opencode.json`（`model` 与 `providers`）。请求里的模型或 `--provider` 若与之不一致，创建直接拒绝并写明两边的值，不会改用预设默认模型，也不会退回 anthropic。

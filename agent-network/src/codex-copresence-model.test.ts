@@ -101,6 +101,6 @@ describe("#512 launcher wiring (source)", () => {
       expect(c).toContain(", model,");
       expect(c).toContain("rolloutBytes: resumeBudget.rolloutBytes");
     }
-    expect(rpc).toMatch(/resumeAndVerifyCodexThread\([\s\S]*?model,\s*\)/);
+    expect(rpc).toMatch(/resumeAndVerifyCodexThread\([\s\S]*?\bmodel,\s*(?:options\.modelProvider,\s*)?\)/);
   });
 });
