@@ -4,6 +4,7 @@ on:
     paths:
       - 'agent-network/**'
       - 'agent-node/src/**'
+      - 'server/**'
       - 'tests/test906-daemon-provider-management/**'
       - '.github/workflows/daemon-provider-store.yml'
   push:
@@ -25,3 +26,7 @@ jobs:
         run: |
           sg docker -c 'docker build -f tests/test906-daemon-provider-management/Dockerfile.cli -t anet-provider-management:test906-cli .'
           sg docker -c 'docker run --rm --network none anet-provider-management:test906-cli'
+      - name: Hub and daemon scoped readback (offline)
+        run: |
+          sg docker -c 'docker build -f tests/test906-daemon-provider-management/Dockerfile.transport -t anet-provider-management:test906-transport .'
+          sg docker -c 'docker run --rm --network none anet-provider-management:test906-transport'

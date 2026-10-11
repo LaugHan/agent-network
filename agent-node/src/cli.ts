@@ -7130,6 +7130,10 @@ async function connectSSE() {
               processRulesFileRequests(rulesFileDeps())
                 .catch((e: any) => warn(`[rules-file] connect catch-up failed: ${e?.message || e}`));
               if (fileConfig.role === "host_supervisor") {
+                import("./runtime/daemon-provider-snapshot.js").then(({ reconcileProviderSnapshots }) => reconcileProviderSnapshots({
+                  callCommHub, workDir: process.cwd(), alias: ALIAS, networkId: NETWORK_ID, daemonId: NODE_ID,
+                  warn: (m: string) => warn(m),
+                })).catch(() => warn("[daemon-provider] readback module unavailable"));
                 import("./runtime/create-node-daemon.js").then(({ handleCreateNodeDoorbell, reconcilePendingCreateRequestsOnConnect, serializeEnvLocalDaemon }) => {
                   reconcilePendingCreateRequestsOnConnect({
                     callCommHub,
@@ -7332,6 +7336,12 @@ async function connectSSE() {
               }
             }
             // RFC-028 P1 — provider probe daemon doorbell (host_supervisor only).
+            if (ev.type === "daemon_provider_snapshot" && fileConfig.role === "host_supervisor") {
+              import("./runtime/daemon-provider-snapshot.js").then(({ reconcileProviderSnapshots }) => reconcileProviderSnapshots({
+                callCommHub, workDir: process.cwd(), alias: ALIAS, networkId: NETWORK_ID, daemonId: NODE_ID,
+                warn: (m: string) => warn(m),
+              })).catch(() => warn("[daemon-provider] readback module unavailable"));
+            }
             if (ev.type === "probe_provider" && fileConfig.role === "host_supervisor") {
               log(`← SSE probe_provider ${ev.probe_id || ""}`);
               import("./runtime/probe-daemon.js").then(({ handleProbeDoorbell }) => {

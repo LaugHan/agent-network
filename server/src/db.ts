@@ -528,6 +528,18 @@ try {
 }
 
 // `node_config_updates` — pending + history. One row per dashboard write.
+// #906: redacted daemon-owned inventory requests, never credential material.
+db.exec(`CREATE TABLE IF NOT EXISTS daemon_provider_snapshots (
+  request_id TEXT PRIMARY KEY, network_id TEXT NOT NULL, daemon_node_id TEXT NOT NULL,
+  requested_by TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, observed_at INTEGER,
+  snapshot_json TEXT, error TEXT
+)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_daemon_provider_pending
+  ON daemon_provider_snapshots(network_id, daemon_node_id, status)`);
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_daemon_provider_inflight
+  ON daemon_provider_snapshots(network_id, daemon_node_id) WHERE status='pending'`);
+
 // At most one row per node may be in a non-terminal state at a time
 // (single-flight enforced at the tool layer; this table just stores).
 //

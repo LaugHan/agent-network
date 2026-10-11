@@ -1,6 +1,6 @@
 # MCP Tools 参考
 
-CommHub Server 注册 **74 个** MCP Tools，全部经 `POST /mcp`（Streamable HTTP）调用。下表是完整索引；其中 17 个 agent 日常协作工具在本页有参数与返回值的详细说明，点名字直达。
+CommHub Server 的 MCP Tools 经 `POST /mcp`（Streamable HTTP）调用；实际清单随版本变化，以运行中 Hub 的 `tools/list` 和仓库 `server/src/tool-audience.ts` 为准。下表为分类索引；其中 17 个 agent 日常协作工具在本页有参数与返回值的详细说明，点名字直达。
 
 ## 谁的 tools/list 里有哪些工具
 
@@ -16,7 +16,7 @@ CommHub Server 注册 **74 个** MCP Tools，全部经 `POST /mcp`（Streamable 
 
 只藏「不看参数就一定被拒」的工具。要看参数才决定的（派活给谁、在哪个网络）一律照列；只看授权 Agent 的受限成员也不按这个藏，因为他换一个网络就可能调得通。每个工具归哪一类在 `server/src/tool-audience.ts`，新工具必须归类，否则测试不过。
 
-实测（74 个工具）：全部 71,559 B；节点 52 个 57,632 B（−19%）；用户 56 个 54,780 B（−23%）。
+历史实测（74 个工具时）：全部 71,559 B；节点 52 个 57,632 B（−19%）；用户 56 个 54,780 B（−23%）。这不是当前版本的数量或体积；当前门限和实测见 `server/src/tool-audience-http.test.ts`。
 
 ## org_whoami：我所在的 Agent 团队
 
@@ -164,6 +164,17 @@ CommHub Server 注册 **74 个** MCP Tools，全部经 `POST /mcp`（Streamable 
 | `get_probe_request` | daemon 拉取待处理的探测请求 |
 | `ack_probe_request` | daemon 回报探测结果（严格白名单：只收 4 个字段，多一个就 `-32602`） |
 | `get_probe_results` | 查探测历史（可按 provider/model/daemon 过滤） |
+
+### Daemon Provider 回读（#906，开发中未发布）
+
+| 工具 | 说明 |
+|------|------|
+| `daemon_provider_snapshot` | 人类网络 owner/admin：`action=refresh,id=<daemon_node_id>` 发起回读；`action=read,id=<request_id>` 查结果；均指定 `network_id`。不读 Hub Provider registry 作为替代，不返回 key |
+| `pull_daemon_provider_snapshots` | 仅 token-bound 目标 daemon 拉取 pending 回读，SSE 门铃与重连补拉使用；默认不向模型列出 |
+| `ack_daemon_provider_snapshot` | 目标 daemon 回报严格白名单快照，或 `failed=true` 固定错误；网络/daemon 不符、夹带 key、超时回执均不能覆盖结果 |
+
+请求 120 秒过期。`succeeded` 只表示配置读回成功，模型仍 `not_checked/not_applied`；
+官方登录、远程密钥保存和实际模型切换不是这个接口的能力。
 
 **内部信号（agent-node 自动调用）** · 3 个
 

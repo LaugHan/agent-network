@@ -54,3 +54,45 @@ Cleanup: test containers used --rm; fixture directories removed by afterEach.
 Only this task's two tagged test images remain. No real keys, local accounts, Hub
 state, daemon process, installed npm package or production configuration touched.
 Recovery questions and remaining gaps: docs/design/906-daemon-provider-management.md
+
+Increment: daemon-scoped remote readback (2026-10-11T00:52Z / 08:52 +08)
+Source: this change on 1d3f5bdd; later restack/retest reported separately.
+Docker only, --network none, non-root UID 10001; all identities/keys test-only.
+Command:
+  sg docker -c 'docker build -f tests/test906-daemon-provider-management/Dockerfile.transport -t anet-provider-management:test906-transport . && docker run --rm --network none anet-provider-management:test906-transport'
+Final pre-restack image manifest:
+  sha256:811916cfeb76f6408410d4e523313367c5a1f07e79df56a8030eaa818bca8595
+Build: checked-in lockfiles; full CLI (319 modules) and agent-node (398 modules)
+bundle. Native Node 22 reader invokes verified source-built anet shim -> real
+private store; save/read redaction and wrong-daemon rejection PASS.
+Hub/daemon tests: 11 pass / 0 fail / 68 expectations. Includes actual local HTTP
+MCP authentication -> daemon handler -> verified CLI -> scoped receipt, plus
+admin/member/anonymous/node/role-revoked controls, scope isolation, timeout,
+duplicate acknowledgements, nested secret/false-verification refusal, lost-ack
+retry and mirrored-contract drift. Live standalone daemon SSE not exercised;
+the actual CLI has both event and reconnect hookups, handler is exercised here.
+Existing full HTTP tool-audience regression: 12 pass / 0 fail / 304 expectations.
+  all 90 tools: 80087 B <= 80100;
+  node 61: 62556 B <= 63100;
+  user 59: 57270 B <= 57500.
+Ceilings unchanged. Consolidated refresh/read into one user tool and condensed
+related daemon/Provider descriptions without changing existing schemas/guards.
+
+Failed attempts (not omitted):
+  First integration harness lacked registerTool: stopped at first auth test;
+  replaced fake registration object with actual McpServer registration.
+  Next: 7 passed, then pinned CLI correctly refused group-writable test shim;
+  fixed Docker COPY permissions and parent dirs, did not relax bin guard.
+  Audience replay passed behavior checks but exceeded original byte ceilings
+  twice (user 58118, then 57714); consolidated/described tools more compactly.
+  After correction all original assertions, including byte limits, passed.
+Doc symbol check in Docker: 17 pins, 8 evaluated, 8 skipped, 1 unavailable
+historical ref, 0 drift. This is NOT full historical-pin coverage.
+QA-trigger check passed with 102 executed test dirs; remote independently fixed
+both trigger lists and the same dashboard pin. Preserve those remote changes.
+
+Still NOT complete: remote secret delivery/write, official account login/switch,
+client management page wiring, actual model invocation, installed native client
+acceptance or release. New protocol transports redacted configuration only.
+No production request/account/daemon/install changes. Test containers --rm,
+fixture dirs deleted, additional transport/guards images retained for diagnosis.

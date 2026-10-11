@@ -459,6 +459,11 @@ Hub 数据备份；只 clone 仓库不会恢复绑定、账号或密钥。撤销
 | `anet node start <name> --copresence` | 启动 Codex app-server、桥和共享 TUI |
 | `anet opencode ...` | 管理 OpenCode preview 集成 |
 
+**开发中、尚未发布（#906）**：`anet daemon provider list <daemon>` 回读该 daemon 的脱敏
+Provider → Runtime → 认证方式 → 模型配置；`anet daemon provider put <daemon> --revision N`
+从 stdin 保存私有 JSON，key 不接受命令行参数。配置成功不等于登录、模型请求或节点切换成功。
+目前远程仅开放受权限保护的配置回读，客户端管理与账号切换仍在接入；不要假定现有安装包已有此能力。
+
 🔴 **停 / 删 / 看没有 daemon 版。** daemon 就是一个 `role=host_supervisor` 的 agent-node,
 所以用 node 级命令:`anet node stop <name>` 停、`anet node delete <name>` 删、
 `anet node ls` 看它在不在跑(`anet daemon list` 只列本机配置过的 daemon,不含活性)。

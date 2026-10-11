@@ -1,0 +1,167 @@
+import "./require-explicit-test-db";
+import { afterAll, beforeEach, expect, test } from "bun:test";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { db } from "./db";
+import { registerTools } from "./tools";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { reconcileProviderSnapshots, readLocalProviderSnapshot } from "../../agent-node/src/runtime/daemon-provider-snapshot";
+import { DaemonProviderStore } from "../../agent-network/src/daemon-provider-store";
+import { register, createNetworkTokenForNode } from "./auth";
+
+const net = "net_dps906", user = "u_dps906", node = "node_dps906", token = "token_dps906", alias = "daemon906";
+const root = mkdtempSync(join(tmpdir(), "dps906-"));
+function cleanup() {
+  for (const t of ["daemon_provider_snapshots", "nodes", "api_tokens", "network_members"]) db.run(`DELETE FROM ${t} WHERE network_id=?1`, [net]);
+  db.run("DELETE FROM networks WHERE network_id=?1", [net]);
+  db.run("DELETE FROM users WHERE user_id=?1", [user]);
+}
+beforeEach(() => {
+  cleanup();
+  db.run("INSERT INTO users (user_id,username,password_hash,role) VALUES (?1,?1,'x','user')", [user]);
+  db.run("INSERT INTO networks (network_id,network_name,owner_id) VALUES (?1,?1,?2)", [net, user]);
+  db.run("INSERT INTO network_members (user_id,network_id,role) VALUES (?1,?2,'owner')", [user, net]);
+  db.run("INSERT INTO nodes (node_id,node_name,alias,network_id,config_snapshot) VALUES (?1,?2,?2,?3,?4)", [node, alias, net, JSON.stringify({ role: "host_supervisor" })]);
+  db.run("INSERT INTO api_tokens (token_id,user_id,network_id,scope,name,token_hash) VALUES (?1,?2,?3,'network',?4,?5)", [token, user, net, `node:${alias}`, `hash_${token}`]);
+});
+afterAll(() => { cleanup(); rmSync(root, { recursive: true, force: true }); });
+function client(kind = "human", network = net) {
+  const handlers: Record<string, any> = {};
+  // Capture the actual registerTools handlers, including production guards.
+  const server = new McpServer({ name: "test906", version: "0" }) as any;
+  const tool = server.tool.bind(server), register = server.registerTool.bind(server);
+  server.tool = (name: string, description: any, schema: any, handler: any) => { handlers[name] = handler; return tool(name, description, schema, handler); };
+  server.registerTool = (name: string, config: any, handler: any) => { handlers[name] = handler; return register(name, config, handler); };
+  registerTools(server, undefined, kind === "daemon" ? network : null, kind === "anonymous" ? null : user,
+    alias, kind === "daemon", kind === "daemon" ? token : null);
+  return async (name: string, args: any = {}) => JSON.parse((await handlers[name](args)).content[0].text);
+}
+const snapshot = () => ({ network_id: net, daemon_node_id: node, revision: 0, source: "daemon", providers: [] });
+const request = () => client()("daemon_provider_snapshot", { action: "refresh", network_id: net, id: node });
+
+test("human authorization precedes dispatch; unknown, nodes and non-admins cannot request", async () => {
+  expect((await client("anonymous")("daemon_provider_snapshot", { action: "refresh", network_id: net, id: node })).error).toBe("user_token_required");
+  expect((await client("daemon")("daemon_provider_snapshot", { action: "refresh", network_id: net, id: node })).ok).toBe(false);
+  db.run("UPDATE network_members SET role='member' WHERE user_id=?1 AND network_id=?2", [user, net]);
+  expect((await request()).error).toBe("provider_admin_required");
+  expect(db.get<{ n: number }>("SELECT COUNT(*) AS n FROM daemon_provider_snapshots WHERE network_id=?1", net)?.n).toBe(0);
+});
+test("normal nodes cannot impersonate a daemon; revoked token cannot pull or ack", async () => {
+  const r = await request(); expect(r.ok).toBe(true);
+  db.run("UPDATE nodes SET config_snapshot='{}' WHERE node_id=?1", [node]);
+  expect((await client("daemon")("pull_daemon_provider_snapshots")).error).toBe("caller_not_a_daemon");
+  db.run("UPDATE nodes SET config_snapshot=?1 WHERE node_id=?2", [JSON.stringify({ role: "host_supervisor" }), node]);
+  db.run("UPDATE api_tokens SET revoked_at=datetime('now') WHERE token_id=?1", [token]);
+  expect((await client("daemon")("pull_daemon_provider_snapshots")).ok).toBe(false);
+  expect((await client("daemon")("ack_daemon_provider_snapshot", { request_id: r.request_id, snapshot: snapshot() })).ok).toBe(false);
+});
+test("request/pull/ack/read lifecycle; duplicate click and ack cannot rewrite receipt", async () => {
+  const r = await request(); expect((await request()).request_id).toBe(r.request_id);
+  const human = client(), daemon = client("daemon");
+  expect((await human("daemon_provider_snapshot", { action: "read", id: r.request_id, network_id: net })).snapshot).toBeNull();
+  expect((await daemon("pull_daemon_provider_snapshots")).requests[0].request_id).toBe(r.request_id);
+  expect((await daemon("ack_daemon_provider_snapshot", { request_id: r.request_id, snapshot: snapshot() })).status).toBe("succeeded");
+  await daemon("ack_daemon_provider_snapshot", { request_id: r.request_id, failed: true });
+  const read = await human("daemon_provider_snapshot", { action: "read", id: r.request_id, network_id: net });
+  expect(read.status).toBe("succeeded"); expect(read.snapshot).toEqual(snapshot()); expect(read.observed_at).toBeGreaterThan(0);
+  expect((await daemon("pull_daemon_provider_snapshots")).requests).toEqual([]);
+});
+test("network and daemon mismatch cannot read or acknowledge another scope", async () => {
+  const r = await request();
+  expect((await client()("daemon_provider_snapshot", { action: "read", id: r.request_id, network_id: "foreign" })).ok).toBe(false);
+  expect((await client("daemon", "foreign")("pull_daemon_provider_snapshots")).ok).toBe(false);
+  const d = client("daemon");
+  expect((await d("ack_daemon_provider_snapshot", { request_id: r.request_id, snapshot: { ...snapshot(), daemon_node_id: "other" } })).error).toBe("invalid_provider_snapshot");
+  db.run("UPDATE daemon_provider_snapshots SET daemon_node_id='other' WHERE request_id=?1", [r.request_id]);
+  expect((await d("ack_daemon_provider_snapshot", { request_id: r.request_id, snapshot: snapshot() })).error).toBe("request_not_found");
+});
+test("timeout is explicit; late daemon reply cannot overwrite it", async () => {
+  const r = await request();
+  db.run("UPDATE daemon_provider_snapshots SET expires_at=?1 WHERE request_id=?2", [Date.now() - 1, r.request_id]);
+  expect((await client("daemon")("ack_daemon_provider_snapshot", { request_id: r.request_id, snapshot: snapshot() })).status).toBe("expired");
+  expect((await client()("daemon_provider_snapshot", { action: "read", id: r.request_id, network_id: net })).snapshot).toBeNull();
+});
+test("secret fields / misleading verification are rejected, never saved in Hub DB", async () => {
+  const r = await request(); const secret = "TEST-ONLY-key-never-in-hub";
+  const auth = { id: "work", kind: "api_key", models: ["model-a"], baseUrl: "https://api.example.test/v1", credential_present: true, verification: "not_checked", application: "not_applied" };
+  const nested = (change: object) => ({ ...snapshot(), providers: [{ id: "deepseek", label: "DeepSeek", enabled: true, runtimes: [{ runtime: "codex-tui", auth: [{ ...auth, ...change }] }] }] });
+  for (const bad of [{ ...snapshot(), key: secret }, { ...snapshot(), source: "hub" }, { ...snapshot(), revision: -1 },
+    nested({ key: secret }), nested({ verification: "verified" }), nested({ application: "applied" }), nested({ baseUrl: `https://user:${secret}@api.example.test/v1` })]) {
+    const reply = await client("daemon")("ack_daemon_provider_snapshot", { request_id: r.request_id, snapshot: bad });
+    expect(reply.error).toBe("invalid_provider_snapshot"); expect(JSON.stringify(reply)).not.toContain(secret);
+  }
+  expect(db.get<{ snapshot_json: string | null }>("SELECT snapshot_json FROM daemon_provider_snapshots WHERE request_id=?1", r.request_id)?.snapshot_json).toBeNull();
+});
+test("mirrored contract cannot drift", () => {
+  expect(readFileSync(new URL("./shared/daemon-provider-snapshot.ts", import.meta.url), "utf8"))
+    .toBe(readFileSync(new URL("../../agent-node/src/shared/daemon-provider-snapshot.ts", import.meta.url), "utf8"));
+});
+test("daemon reconnection executes actual pinned CLI against private store and acks redacted data", async () => {
+  const dir = join(root, ".anet/nodes", alias); mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(dir, "config.json"), JSON.stringify({ role: "host_supervisor", network_id: net, node_id: node }), { mode: 0o600 });
+  const key = "TEST-ONLY-private-906";
+  new DaemonProviderStore(dir).upsert({ id: "deepseek", label: "DeepSeek", enabled: true, runtimes: [{ runtime: "codex-tui", auth: [{ id: "work", kind: "api_key", models: ["model-a"], baseUrl: "https://api.example.test/v1", key }] }] }, 0);
+  const deps = { workDir: root, alias, networkId: net, daemonId: node, callCommHub: client("daemon"), warn: () => { throw Error("unexpected_warning"); } };
+  // Atomic local read must pass before the Hub/daemon round trip.
+  expect((await readLocalProviderSnapshot(deps) as any).revision).toBe(1);
+  const r = await request();
+  await Promise.all([reconcileProviderSnapshots(deps), reconcileProviderSnapshots(deps)]);
+  const read = await client()("daemon_provider_snapshot", { action: "read", id: r.request_id, network_id: net });
+  expect(read.status).toBe("succeeded"); expect(read.snapshot.providers[0].runtimes[0].auth[0].credential_present).toBe(true);
+  expect(JSON.stringify(read)).not.toContain(key); expect(read.snapshot.providers[0].runtimes[0].auth[0].verification).toBe("not_checked");
+});
+test("daemon raw errors are replaced with fixed failure receipt", async () => {
+  const r = await request();
+  await reconcileProviderSnapshots({ workDir: root, alias, networkId: net, daemonId: node, callCommHub: client("daemon"), warn: () => {},
+    readSnapshot: async () => { throw Error("TEST-ONLY-sensitive-error"); } });
+  const read = await client()("daemon_provider_snapshot", { action: "read", id: r.request_id, network_id: net });
+  expect(read.status).toBe("failed"); expect(read.error).toBe("provider_snapshot_unavailable"); expect(JSON.stringify(read)).not.toContain("TEST-ONLY-sensitive-error");
+});
+test("lost acknowledgement retries on reconnect, without swallowing a new doorbell", async () => {
+  const r = await request(); const real = client("daemon"); let loseAck = true, reads = 0;
+  const deps = { workDir: root, alias, networkId: net, daemonId: node, warn: () => {},
+    readSnapshot: async () => { reads++; return snapshot(); },
+    callCommHub: async (name: string, args: any) => {
+      if (name === "ack_daemon_provider_snapshot" && loseAck) { loseAck = false; throw Error("TEST-ONLY-transport-down"); }
+      return real(name, args);
+    } };
+  await reconcileProviderSnapshots(deps);
+  expect((await client()("daemon_provider_snapshot", { action: "read", id: r.request_id, network_id: net })).status).toBe("pending");
+  await reconcileProviderSnapshots(deps);
+  expect((await client()("daemon_provider_snapshot", { action: "read", id: r.request_id, network_id: net })).status).toBe("succeeded");
+  expect(reads).toBe(2);
+});
+test("real HTTP authentication -> daemon handler -> pinned CLI -> scoped public receipt", async () => {
+  process.env.COMMHUB_UPLOADS_DIR = join(root, "uploads");
+  const owner = register("provider906_http", "TestOnly-Provider906-Password!1");
+  expect(owner.ok).toBe(true);
+  const netId = owner.network_id!, nodeId = "node_dps_http", daemonAlias = "daemon-http";
+  const issued = createNetworkTokenForNode(owner.user!.user_id, netId, daemonAlias, nodeId);
+  expect(issued.ok).toBe(true);
+  db.run("UPDATE nodes SET config_snapshot=?1 WHERE node_id=?2", [JSON.stringify({ role: "host_supervisor" }), nodeId]);
+  const dir = join(root, ".anet/nodes", daemonAlias); mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(dir, "config.json"), JSON.stringify({ role: "host_supervisor", network_id: netId, node_id: nodeId }), { mode: 0o600 });
+  const hub = (await import("./server")).bootServer({ port: 0, hostname: "127.0.0.1" });
+  const url = `http://127.0.0.1:${hub.port}/mcp`;
+  const rpc = (credential: string) => async (name: string, args: any) => {
+    const response = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream", "MCP-Protocol-Version": "2025-03-26" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) });
+    expect(response.status).toBe(200);
+    const raw = await response.text(); const line = raw.split("\n").filter(x => x.startsWith("data:")).at(-1);
+    const message = JSON.parse(line ? line.slice(5) : raw);
+    expect(message.error).toBeUndefined();
+    return JSON.parse(message.result.content[0].text);
+  };
+  try {
+    const human = rpc(owner.token!), daemon = rpc(issued.token!);
+    const refresh = await human("daemon_provider_snapshot", { action: "refresh", id: nodeId, network_id: netId });
+    expect(refresh.status).toBe("pending");
+    expect((await human("pull_daemon_provider_snapshots", {})).ok).toBe(false);
+    expect((await daemon("daemon_provider_snapshot", { action: "refresh", id: nodeId, network_id: netId })).ok).toBe(false);
+    await reconcileProviderSnapshots({ workDir: root, alias: daemonAlias, networkId: netId, daemonId: nodeId, callCommHub: daemon,
+      warn: () => { throw Error("unexpected_HTTP_readback_failure"); } });
+    const read = await human("daemon_provider_snapshot", { action: "read", id: refresh.request_id, network_id: netId });
+    expect(read.status).toBe("succeeded"); expect(read.snapshot).toEqual({ network_id: netId, daemon_node_id: nodeId, revision: 0, source: "daemon", providers: [] });
+  } finally { hub.stop(true); }
+});
