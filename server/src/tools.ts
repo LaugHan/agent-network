@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { requestProviderSnapshot, requestProviderWrite, requestProviderApplication, getProviderSnapshot, pullProviderSnapshots, ackProviderSnapshot } from "./daemon-provider-snapshots.js";
 import { requestAdopt, getAdopt, ackAdopt, unadopt, resolveManagedDaemon, activeBinding, createdDaemon } from "./node-daemon-bindings.js";
 import { runtimeReadinessSchema } from "./runtime-readiness.js";
 import { adoptionCandidatesReportSchema } from "./adoption-candidates.js";
@@ -4116,6 +4117,34 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
   const resolveCallerDaemonTokenBound = () =>
     _resolveCallerDaemonTokenBound({ callerTokenIsNetwork, callerTokenId, enforceNetworkId });
 
+  const providerHuman = (net?: string) => ({ userId: enforceUserId, isNode: callerTokenIsNetwork, networkId: getNetworkId(net) });
+  const providerReply = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value) }] });
+  server.tool(
+    "daemon_provider_snapshot", "Admin Provider config. refresh/put/apply: id=daemon; read: id=request. put: revision/provider; apply: revision/provider={node_id,node_revision,provider_id,auth_id,model,confirm_restart:true}.",
+    { action: z.enum(["refresh", "read", "put", "apply"]), id: z.string().min(1).max(200), network_id: z.string().max(200).optional(), revision: z.number().int().min(0).optional(), provider: z.unknown().optional() },
+    async ({ action, id, network_id, revision, provider }) => {
+      const human = providerHuman(network_id);
+      if (action === "read") return providerReply(getProviderSnapshot(human, id));
+      const daemon_node_id = id;
+      const result = action === 'apply' ? requestProviderApplication(human, daemon_node_id, revision!, provider)
+        : action === 'put' ? requestProviderWrite(human, daemon_node_id, revision!, provider) : requestProviderSnapshot(human, daemon_node_id);
+      if (result.ok) {
+        const target = db.get<{ alias: string }>("SELECT alias FROM nodes WHERE node_id=?1 AND network_id=?2", daemon_node_id, human.networkId!);
+        if (target) pushEvent(target.alias, { type: "daemon_provider_snapshot", request_id: result.request_id }, human.networkId!);
+      }
+      return providerReply(result);
+    },
+  );
+  server.tool(
+    "pull_daemon_provider_snapshots", "Daemon Provider work; advertise only implemented secure write/apply capabilities.", { accept_writes: z.boolean().optional(), accept_applications: z.boolean().optional() },
+    async ({ accept_writes, accept_applications }) => providerReply(pullProviderSnapshots(resolveCallerDaemonTokenBound(), accept_writes, accept_applications)),
+  );
+  server.tool(
+    "ack_daemon_provider_snapshot", "Target daemon acknowledges redacted Provider configuration readback; fixed failure code only.",
+    { request_id: z.string().min(1).max(200), snapshot: z.unknown().optional(), failed: z.boolean().optional(), applied_revision: z.number().int().min(0).optional(), application: z.unknown().optional() },
+    async ({ request_id, snapshot, failed, applied_revision, application }) => providerReply(ackProviderSnapshot(resolveCallerDaemonTokenBound(), request_id, snapshot, failed, applied_revision, application)),
+  );
+
   // Helper — map a ValidationError thrown from create-node-validate
   // into the MCP-tool-call JSON reply shape.
   const validationFailReply = (e: unknown) => {
@@ -4135,7 +4164,7 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
   // join on api_tokens.revoked_at.
   server.tool(
     "list_host_supervisors",
-    "List host_supervisor daemon nodes in the caller's network (online status + runtimes_supported + allowed_secret_keys + telemetry; member-脱敏). RFC-026 §9.2.1.",
+    "List network daemons: status, runtimes, secret-key allowlist and telemetry (member-redacted).",
     {
       network_id: z.string().max(200).optional(),
     },
@@ -4271,7 +4300,7 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
   // row (metadata only — no env_blob in SQL), pushEvent doorbell.
   server.tool(
     "create_node",
-    "Create a node on a host-daemon and start it. Daemon forks `anet node create + start` on the target machine; child reports back to hub. RFC-026.",
+    "Create/start a node on the target daemon; the child reports back to Hub.",
     {
       daemon_node_id: z.string().min(1).max(200),
       node_spec: z.object({
@@ -4586,7 +4615,7 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
   // any still-pending requests bound to its own daemon token.
   server.tool(
     "list_my_pending_create_requests",
-    "Daemon lists pending create-node requests bound to itself for SSE reconnect compensation. RFC-026/#1362.",
+    "Daemon pulls its pending creates after reconnect.",
     {},
     async () => {
       const callerDaemon = resolveCallerDaemonTokenBound();
@@ -4618,7 +4647,7 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
   // 只返回绑定到本 daemon + 本网络的 pending 行。
   server.tool(
     "list_my_pending_lifecycle_requests",
-    "Daemon lists pending stop/delete/start requests bound to itself for SSE reconnect compensation. Mirrors list_my_pending_create_requests (#1394/#1448).",
+    "Daemon pulls its pending stop/delete/start requests after reconnect.",
     {},
     async () => {
       const callerDaemon = resolveCallerDaemonTokenBound();
@@ -5182,7 +5211,7 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
 
   server.tool(
     "stop_node",
-    "Stop the agent-node child process; keep config dir intact. Reversible via restart_node. RFC-027 §2.2. daemon_node_id is auto-resolved from child_node_id when omitted (looked up in node_create_requests).",
+    "Stop child, preserving config. Restart via restart_node. Omitted daemon_node_id resolves from child's create request.",
     {
       ...NODE_ID_ALIAS_FIELDS,
       // PR2 prereq: dashboard rarely knows daemon_node_id directly.
@@ -5411,7 +5440,7 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
   // consumer of its own, so restart_node's self-doorbell cannot revive it.
   server.tool(
     "start_node",
-    "Start a stopped child through its host supervisor daemon. daemon_node_id is auto-resolved from the original create request.",
+    "Start stopped child; omitted daemon_node_id resolves from its create request.",
     {
       ...NODE_ID_ALIAS_FIELDS,
       daemon_node_id: z.string().min(1).max(200).regex(/^node_[a-z0-9_-]+$/).optional(),
@@ -5633,7 +5662,7 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
   // token + network.
   server.tool(
     "list_my_children",
-    "Daemon pulls the alias + node_id list of children it spawned (for childrenMap rebuild after restart). RFC-027 PR1.1.",
+    "Daemon lists child alias/node_id pairs to rebuild its map.",
     {},
     async () => {
       const callerDaemon = resolveCallerDaemonTokenBound(); // board #674: token-bound snapshot, not a lease
@@ -5679,7 +5708,7 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
   const adoptionReply = (result: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(result) }] });
   server.tool(
     "request_adopt_node",
-    "Human owner/admin requests adoption. Only the target capable daemon may activate the binding after local verification; no process is signalled.",
+    "Owner/admin requests adoption; target daemon verifies locally before binding. No signals.",
     { node_id: z.string().min(1).max(200), daemon_node_id: z.string().min(1).max(200), workdir: z.string().min(1).max(4096) },
     async args => adoptionReply(requestAdopt(adoptionHuman(), args)),
   );
@@ -5988,7 +6017,7 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
   // §2.3.3 — list_providers (viewer+; never returns secret VALUES).
   server.tool(
     "list_providers",
-    "List providers + models in the caller's network. Never returns secret VALUES. RFC-028.",
+    "List network Provider/model registry, never secrets. Not daemon inventory.",
     { network_id: z.string().max(200).optional() },
     async ({ network_id: clientNetId }) => {
       const effectiveNetId = getNetworkId(clientNetId);
@@ -6015,7 +6044,7 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
   // §2.3.5 — probe_provider_model (admin+; dispatches to daemon).
   server.tool(
     "probe_provider_model",
-    "Dispatch a connectivity probe to a daemon. Mints ephemeral secret blob; daemon pulls via get_probe_request. Admin+. RFC-028.",
+    "Admin+ dispatches daemon probe; ephemeral secret pulled via get_probe_request.",
     {
       provider_id: z.string().min(1).max(200),
       model_name: z.string().min(1).max(100),
@@ -6081,7 +6110,7 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
   // §2.3.6 — get_probe_results (viewer+; matrix renderer source).
   server.tool(
     "get_probe_results",
-    "Query probe history (optionally filtered by provider/model/daemon). Used by dashboard reachability matrix. RFC-028.",
+    "Query probe history filtered by provider/model/daemon.",
     {
       provider_id: z.string().max(200).optional(),
       model_name: z.string().max(100).optional(),
@@ -6109,7 +6138,7 @@ export function registerTools(server: McpServer, clientIP?: string, enforceNetwo
   // §2.3.7 daemon-facing — get_probe_request.
   server.tool(
     "get_probe_request",
-    "Daemon pulls a pending probe request (called when SSE probe_provider doorbell arrives). RFC-028.",
+    "Daemon pulls pending probe on SSE probe_provider.",
     { probe_id: z.string().min(1).max(200) },
     async ({ probe_id }) => {
       const callerDaemon = _resolveCallerDaemonTokenBound({ callerTokenIsNetwork, callerTokenId, enforceNetworkId });

@@ -26,6 +26,19 @@ Returns `node_id`, `source` (`node` / `none`), `team {id,name}`, nearest-first `
 
 ## Complete tool index
 
+**Daemon Provider management (#906, development / not released)**
+
+| Tool | What it does |
+|------|------|
+| `daemon_provider_snapshot` | Network owner/admin requests scoped `refresh`, reads a request with `read`, saves a versioned Provider with `put`, or explicitly confirms single-node `apply`. Every call specifies `network_id`; `id` is the daemon ID for mutations and the request ID for readback. Secrets are never returned. |
+| `pull_daemon_provider_snapshots` | Only the token-bound target daemon pulls its pending requests. Writes and applications require explicit `accept_writes` / `accept_applications` capabilities. Internal protocol, not listed to models by default. |
+| `ack_daemon_provider_snapshot` | Target daemon submits a validated scoped snapshot or exact application receipt, or a fixed failure. Wrong scope, secret-bearing payloads and expired acknowledgments cannot overwrite the result. |
+
+An application receipt is distinct from a saved configuration. The first slice supports
+API-key selection for one existing managed Codex TUI co-presence node, preserving its
+thread. Official account switching is not implemented by this path. Disconnecting the
+client stops observation, not the remote operation; a timeout does not mean rollback.
+
 **Agent teams**
 
 | Tool | What it does |

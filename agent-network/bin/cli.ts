@@ -13,6 +13,8 @@
 import { chmodSync, readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, statSync, lstatSync, renameSync, rmSync, cpSync, copyFileSync, unlinkSync, realpathSync, symlinkSync } from "fs";
 import { checkDaemonAnetBin, daemonAnetBinEnv, shouldPinDaemonOnNodeStart } from "../src/daemon-anet-bin.js";
 import { runDaemonAdopt } from "../src/daemon-adopt.js";
+import { readProviderInput, runDaemonProvider } from "../src/daemon-provider-command.js";
+import { runDaemonProviderApply } from '../src/daemon-provider-apply-command.js';
 import { stoppedReceiptAtStart, isHubStopped } from "../src/stopped-receipt.js";
 import { formatScrubbedEnvLine, scrubInheritedSessionIdentityEnv } from "../src/daemon-inherited-env.js";
 import { dirname, isAbsolute, join, resolve } from "path";
@@ -735,6 +737,8 @@ interface CopresenceOptions {
   codexVersion?: string;
   codexHome: string;
   model?: string;
+  /** Non-persisted explicit provider override for exact-session recovery. */
+  modelProvider?: string;
   port?: number;
   dangerFullAccess: boolean;
   yesDangerFullAccess: boolean;
@@ -1179,7 +1183,7 @@ async function startWindowsCodexCopresence(
     console.log(`[anet] Codex thread recovery deadline: ${resumeBudget.timeoutMs}ms (${formatCopresenceRolloutSize(resumeBudget.rolloutBytes)})`);
     recoveryAdmission = await holdCodexRecovery(resolved.id, resumeBudget.rolloutBytes);
     const thread = await resumeOrForkOnMissingOrdinal(
-      (forkFirst) => createCodexCopresenceThread(wsUrl, resumeBudget.timeoutMs, requestedThreadId, model, { rolloutBytes: resumeBudget.rolloutBytes, forkFirst }),
+      (forkFirst) => createCodexCopresenceThread(wsUrl, resumeBudget.timeoutMs, requestedThreadId, model, { rolloutBytes: resumeBudget.rolloutBytes, forkFirst, modelProvider: opts.modelProvider ?? resolved.profile.codexModelProvider }),
       forkRecoveryOptions(resolved.id, displayName, opts, requestedThreadId),
     );
     reportResumedCodexModel(model, thread.resumedModel);
@@ -1657,7 +1661,8 @@ async function startCopresenceOrchestration(nodeId: string, opts: CopresenceOpti
         try { chmodIfPosix(step.dst, step.mode); } catch { /* best effort */ }
         console.log(`[anet] staged ${step.name} into the node CODEX_HOME (${step.reason}) — ${step.because}`);
       }
-    } else if (!existsSync(join(opts.codexHome, "auth.json"))) {
+    } else if (!existsSync(join(opts.codexHome, "auth.json"))
+      && codexHomeLoginState(opts.codexHome, { ...process.env, ...opts.configEnv }).state === 'needs-login') {
       console.error(`[anet] ⚠ --no-inherit-codex-home, and ${join(opts.codexHome, "auth.json")} does not exist.`);
       console.error(`[anet]   codex TUI 会停在登录选择页，且不会说明原因（#853）。先在该 HOME 下登录一次。`);
     }
@@ -1678,7 +1683,7 @@ async function startCopresenceOrchestration(nodeId: string, opts: CopresenceOpti
   // bridge died 120 s later waiting for a thread nobody could create. Decide BEFORE any session starts.
   // Judged by the #529 helper (codexLoginFactsOfHome) on opts.codexHome: the home THIS launch hands to all
   // three sessions (--codex-home > config.codexHome > <node>/codex-home), after host-login staging above.
-  const loginGate = codexHomeLoginState(opts.codexHome);
+  const loginGate = codexHomeLoginState(opts.codexHome, { ...process.env, ...opts.configEnv });
   if (loginGate.state === "needs-login") {
     for (const line of describeCodexNeedsLogin({ alias: displayName, codexHome: opts.codexHome, reason: loginGate.reason })) console.error(line);
     process.exit(NEEDS_LOGIN_EXIT_CODE);
@@ -1986,7 +1991,7 @@ async function startCopresenceOrchestration(nodeId: string, opts: CopresenceOpti
     console.log(`[anet] Codex thread recovery deadline: ${resumeBudget.timeoutMs}ms (${formatCopresenceRolloutSize(resumeBudget.rolloutBytes)})`);
     recoveryAdmission.hold(await holdCodexRecovery(nodeId, resumeBudget.rolloutBytes));
     const thread = await resumeOrForkOnMissingOrdinal(
-      (forkFirst) => createCodexCopresenceThread(wsUrl, resumeBudget.timeoutMs, requestedThreadId, model, { rolloutBytes: resumeBudget.rolloutBytes, forkFirst }),
+      (forkFirst) => createCodexCopresenceThread(wsUrl, resumeBudget.timeoutMs, requestedThreadId, model, { rolloutBytes: resumeBudget.rolloutBytes, forkFirst, modelProvider: opts.modelProvider ?? profile.codexModelProvider }),
       forkRecoveryOptions(resolved.id, displayName, opts, requestedThreadId),
     );
     reportResumedCodexModel(model, thread.resumedModel);
@@ -2742,6 +2747,7 @@ interface Profile {
   codexRuntime?: string;
   codexAppServerUrl?: string;  // RFC-030 — shared codex app-server URL (co-presence)
   codexThreadId?: string;      // RFC-030 — codex thread to adopt
+  codexModelProvider?: string; // #906 explicit provider when resuming an existing thread
   codexRecoveryVerification?: CodexRecoveryVerification;
   codexRecoveryBackup?: { createdAt: string; stateFiles: string[]; path: string };
   // Remembered so `anet node start <name>` alone brings up the co-presence
@@ -4643,6 +4649,8 @@ Daemon (host_supervisor — required by the dashboard's node-creation wizard):
   anet daemon init <name>                                 Create a host_supervisor node config
   anet daemon start <name>                                Start an existing daemon
   anet daemon list                                        List locally-configured daemons
+  anet daemon provider list <name>                        Read daemon-scoped Provider configuration (no secrets)
+  anet daemon provider put <name> --revision N             Save private Provider JSON from stdin (not runtime apply)
 
 Config & tokens:
   anet config [path|json]      Show config summary, path, or raw JSON
@@ -8518,6 +8526,7 @@ async function startCommand() {
       // #448 — absolute, and from the node's own config/dir; never from the environment.
       codexHome: resolve(opts["codex-home"] || (typeof prof.codexHome === "string" && prof.codexHome ? prof.codexHome : codexHomeDefault)),
       model: opts.model,
+      modelProvider: opts['codex-model-provider'],
       port: opts.port ? Number(opts.port) : undefined,
       dangerFullAccess: opts["dangerously-allow-full-access"] === "true",
       inheritCodexHome: opts["no-inherit-codex-home"] !== "true",
@@ -11030,6 +11039,9 @@ Subcommands:
   adopt <alias>        Plan adoption from this workdir (--yes to request; --all supported)
   unadopt <alias>      Plan binding revocation (--yes to apply, never stops node)
   adopted             List active adopted nodes (run from the daemon workdir)
+  provider list <name> Read daemon-scoped Provider configuration (redacted)
+  provider put <name> --revision N
+                      Save private JSON from stdin; does not log in or apply to nodes
 
 Options:
   --force              init only。两种用法:
@@ -11053,6 +11065,15 @@ Run \`anet hub start\` first if you don't yet have a CommHub.`);
   switch (sub) {
     case "adopt": case "unadopt": case "adopted": {
       const code = await runDaemonAdopt(sub, args.slice(2), { cwd: process.cwd(), home: homedir(), login: loadGlobal(), fetch, print: console.log });
+      if (code === 2) markUsageError(); else if (code) markFailed();
+      break;
+    }
+    case "provider": {
+      const providerCommand = args[2] === 'apply' ? runDaemonProviderApply : runDaemonProvider;
+      const code = await providerCommand(args.slice(2), { nodesDir: nodesDir(), readInput: () => {
+        if (process.stdin.isTTY) throw new Error("private stdin required");
+        return readProviderInput();
+      }, print: console.log });
       if (code === 2) markUsageError(); else if (code) markFailed();
       break;
     }
