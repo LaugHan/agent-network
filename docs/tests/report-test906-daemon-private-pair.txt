@@ -22,3 +22,13 @@ Hub same node_daemon_39bd1eeae3ee online, version .129, idle, queue 0.
 Read-only requested inventory operation: empty managed store revision0; own-node
 Codex scan unavailable (no local binding, legacy config/scope gaps).
 Do NOT claim scan/account/model switching works merely from version/online status.
+
+12:46 +08 CLI publication operation:
+Detached checkout b4413131b73c52c286beec46509773716698d89f and the original
+verify-release-main.sh passed against freshly fetched main before publication.
+Formal run38106199041 artifact11689412711 head b441, build and all four gates SUCCESS.
+Created prerelease cli-v2.3.0-preview.163, latest=false, exact target b441.
+Uploaded original gated tarball and checksum, downloaded draft back and matched hash,
+then published. Anonymous HTTPS full download matched the same SHA256.
+Public tag API independently resolves b441; 2 assets, CLI archive 2083815 bytes.
+No npm republish, floating tag move, branch artifact or desktop publication.

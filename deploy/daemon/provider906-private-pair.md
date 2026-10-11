@@ -18,11 +18,19 @@ global npm packages, npm dist-tags, Hub endpoints, or other nodes' credentials.
 
 ## Install and recover
 
+As of 2026-10-11 12:46 UTC+08 an independent public copy of the same package is
+available at https://github.com/sleep2agi/agent-network/releases/download/cli-v2.3.0-preview.163/sleep2agi-agent-network-2.3.0-preview.163.tgz .
+Tag `cli-v2.3.0-preview.163` resolves to the exact source main SHA above. Upload
+readback and anonymous full download matched the pinned SHA256. This copied the
+formal main artifact without rebuilding; it did not move npm dist-tags or make
+the desktop release complete. This durable URL is the preferred recovery source
+while npm visibility remains delayed, and avoids relying on CI artifact retention.
+
 Download the named artifact using authenticated `gh run download 38106199041
 --repo sleep2agi/agent-network --name gated-tarball --dir <empty-staging>`.
 Check the inner tarball SHA256 above (not the artifact archive digest). If the
-artifact expires, use the matching public npm tarball only after checking that
-same hash; otherwise recovery of these exact bytes needs the archived artifact.
+artifact expires, use the public GitHub copy above or the matching public npm
+tarball only after checking that same hash.
 Do not silently rebuild a different package and claim an identical release.
 
 Keep it in a durable private prefix such as `$HOME/.anet-bin/provider906-cli163`.
