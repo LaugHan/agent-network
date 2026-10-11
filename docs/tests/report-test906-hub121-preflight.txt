@@ -39,3 +39,13 @@ an authoritative launcher preserving the deployed side-thread setting, exact
 version readback, and fleet heartbeat/ack observations. CLI .163 is still not
 downloadable, and desktop .235 is not yet published. Android .235 publication
 is independent (run38110423323; not evidence of production Provider availability).
+
+2026-10-11 12:20 +08 — versioned launcher profile core check PASS.
+Command (network disabled throughout):
+  sg docker -c 'docker build --network none -f tests/test906-hub-upgrade-preflight/Dockerfile.launcher -t anet-provider:hub121-launcher . && docker run --rm --network none anet-provider:hub121-launcher'
+Verified with an isolated fake executor (no live Hub):
+  - profile passes the .121 fixed runtime entry to the original launcher;
+  - explicit rollback path selects .115;
+  - side-thread default 1 and explicit override 0 reach the executor correctly.
+Original vault/port preconditions remain in the shared launcher. This narrow
+check does not retest them, execute the Hub, or constitute deployment acceptance.

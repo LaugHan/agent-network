@@ -164,6 +164,30 @@ curl -s localhost:9200/health          # version 与 sessions_count
 
 把 `RUNTIME_DIR` 指回上一个目录,`pm2 restart`。**旧目录一律不删。**
 
+### #906 的精确版本部署配置
+
+`hub-daemon.sh` 默认值仍对应 CLI 的兼容基线，不是线上最新版本。
+`hub-provider906.sh` 是 `.121` 的无密钥部署配置：选择
+`~/.commhub/runtime-v105-preview121`，保留目标 Hub 原本开启的 side-thread
+功能（显式设置 `COMMHUB_ENABLE_SIDE_THREADS=0` 仍有效）。不能只覆盖启动器
+而未安装这个精确 runtime。发布源是 main
+`b4413131b73c52c286beec46509773716698d89f`，包是
+`@sleep2agi/commhub-server@0.9.0-preview.121`；来源和离线迁移结果见
+`docs/tests/report-test906-hub121-preflight.txt`。预检通过不代表已部署。
+
+完成上述一致性备份、精确包固化安装和 Docker 旁路验证后，将合入 main 的
+`deploy/hub/hub-daemon.sh` 安装为 `~/.local/bin/hub-daemon-base.sh`，将
+`deploy/hub/hub-provider906.sh` 安装为既有 PM2 入口
+`~/.local/bin/hub-daemon.sh`（均 0700）。逐一核对部署副本与 Git 文件字节一致。
+PM2 定义、端口、反代、数据库路径与 `hub.env` 密钥来源不变，不使用
+`--update-env`。按上文五条核对真实运行版本、心跳和 ack，再记录实际切换。
+
+本次回滚目标是已保留的 `runtime-v104-preview115`。切换前备份原启动脚本；
+需要回滚时恢复该备份并仅重启 `commhub-hub`，不删除 runtime 或数据库表。
+软件回滚不撤销已应用的 Provider 配置；数据库内容和 vault 原始密钥仍需要
+独立加密备份，Git 不含这些材料。此配置不改变 CLI `PINNED_SERVER_VERSION`，
+也不升级任何 Daemon 或节点。
+
 ## 混版风险(必读)
 
 `docs/release/versioning-and-compatibility.md` 的 **C2 契约**:
